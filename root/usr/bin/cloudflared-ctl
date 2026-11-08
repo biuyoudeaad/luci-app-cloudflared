@@ -1,0 +1,776 @@
+#!/bin/sh
+# cloudflared-ctl - shared control helper for luci-app-cloudflared.
+
+set -u
+
+CTL_COMMON="${CLOUDFLARED_COMMON:-/usr/lib/cloudflared/common.sh}"
+[ -f "$CTL_COMMON" ] || {
+	printf 'missing common library: %s\n' "$CTL_COMMON" >&2
+	exit 1
+}
+. "$CTL_COMMON"
+
+mkdir -p "$CF_STATE_DIR"
+
+usage() {
+	cat <<'USAGE'
+Usage: cloudflared-ctl <command> [args]
+
+Commands:
+  gen-config <section>
+  get-config-path <section>
+  domain-switch <section> <new_domain> [--no-rewrite-hosts] [--no-dns-sync] [--no-restart]
+  dns-sync <section>
+  status <section>
+  version [binary]
+  login-start <section> [force]
+  login-status <section>
+  install-cert <section> <file>
+  install-credentials <section> <file>
+  tunnel-create <section> [name]
+  core-install [url]
+  core-asset
+  core-latest
+  core-status
+  check
+  clear-logs
+  tunnel-sections
+  ingress-sections <section>
+USAGE
+}
+
+status_write() {
+	local file="$1"
+	shift
+	printf '%s\n' "$@" > "$file"
+}
+
+tunnel_exists() {
+	[ -n "$(uci -q get "cloudflared.$1" 2>/dev/null)" ]
+}
+
+cmd_gen_config() {
+	local section="${1:-}"
+	local cfg count
+
+	[ -n "$section" ] || { cf_err "missing section"; return 1; }
+	tunnel_exists "$section" || { cf_err "unknown section: $section"; return 1; }
+
+	cfg="$(cf_gen_config "$section")" || return 1
+	count="$(cf_ingress_sections "$section" | wc -l | tr -d ' ')"
+	printf 'OK config=%s tunnel=%s ingress=%s\n' "$cfg" "$section" "$count"
+}
+
+cmd_ingress_sections() {
+	local section="${1:-}"
+	local ingress
+
+	[ -n "$section" ] || { cf_err "missing section"; return 1; }
+	for ingress in $(cf_ingress_sections "$section"); do
+		printf '%s\thostname=%s\tservice=%s\n' "$ingress" \
+			"$(cf_get "$ingress" hostname)" "$(cf_get "$ingress" service)"
+	done
+}
+
+cmd_get_config_path() {
+	local section="${1:-}"
+
+	[ -n "$section" ] || { cf_err "missing section"; return 1; }
+	cf_config_path "$section"
+}
+
+cmd_dns_sync() {
+	local section="${1:-}"
+	local created
+
+	[ -n "$section" ] || { cf_err "missing section"; return 1; }
+	tunnel_exists "$section" || { cf_err "unknown section: $section"; return 1; }
+
+	created="$(cf_dns_sync "$section")" || return 1
+	printf 'OK created=%s\n' "$created"
+}
+
+cmd_domain_switch() {
+	local section="${1:-}"
+	local new="${2:-}"
+	local rewrite=1
+	local sync=1
+	local restart=1
+	local old rewritten dns=0 cfg
+
+	shift 2 2>/dev/null || true
+	while [ $# -gt 0 ]; do
+		case "$1" in
+			--no-rewrite-hosts) rewrite=0 ;;
+			--no-dns-sync) sync=0 ;;
+			--no-restart) restart=0 ;;
+			*) cf_err "unknown option: $1"; return 1 ;;
+		esac
+		shift
+	done
+
+	[ -n "$section" ] || { cf_err "missing section"; return 1; }
+	[ -n "$new" ] || { cf_err "missing new domain"; return 1; }
+	tunnel_exists "$section" || { cf_err "unknown section: $section"; return 1; }
+	cf_valid_domain "$new" || { cf_err "invalid domain: $new"; return 1; }
+
+	old="$(cf_get "$section" applied_domain)"
+	[ -n "$old" ] || old="$(cf_get "$section" domain)"
+
+	if [ -n "$old" ] && [ "$old" = "$new" ]; then
+		printf 'OK old=%s new=%s rewritten=0 dns_created=0 restarted=0 config=%s\n' \
+			"$old" "$new" "$(cf_config_path "$section")"
+		return 0
+	fi
+
+	rewritten=0
+	if [ "$rewrite" = "1" ] && [ -n "$old" ] && [ "$old" != "$new" ]; then
+		rewritten="$(cf_domain_rewrite "$section" "$old" "$new")"
+	fi
+
+	cf_set "$section" domain "$new"
+	cf_set "$section" applied_domain "$new"
+	cf_commit
+
+	cfg="$(cf_gen_config "$section")" || {
+		cf_err "failed to generate config for $section"
+		return 1
+	}
+
+	if [ "$sync" = "1" ]; then
+		dns="$(cf_dns_sync "$section" 2>/dev/null)" || dns=0
+	fi
+
+	if [ "$restart" = "1" ]; then
+		cf_restart
+	fi
+
+	printf 'OK old=%s new=%s rewritten=%s dns_created=%s restarted=%s config=%s\n' \
+		"${old:-}" "$new" "$rewritten" "$dns" "$restart" "$cfg"
+}
+
+cmd_status() {
+	local section="${1:-}"
+	local enabled config cert creds tid
+
+	[ -n "$section" ] || { cf_err "missing section"; return 1; }
+	tunnel_exists "$section" || { cf_err "unknown section: $section"; return 1; }
+
+	enabled="$(cf_get "$section" enabled 1)"
+	config="$(cf_config_path "$section")"
+	cert="$(cf_cert_path "$section")"
+	creds="$(cf_credentials "$section" 2>/dev/null)" || creds=""
+	tid="$(cf_get "$section" tunnel_id)"
+
+	printf 'enabled=%s\n' "$enabled"
+	printf 'config=%s\n' "$config"
+	printf 'config_exists=%s\n' "$([ -f "$config" ] && echo 1 || echo 0)"
+	printf 'cert=%s\n' "$cert"
+	printf 'cert_exists=%s\n' "$([ -f "$cert" ] && echo 1 || echo 0)"
+	printf 'credentials=%s\n' "$creds"
+	printf 'tunnel_id=%s\n' "$tid"
+}
+
+cmd_login_start() {
+	local section="${1:-}"
+	local force="${2:-0}"
+	local bin cert dir log status home pid exitfile started
+
+	[ -n "$section" ] || { cf_err "missing section"; return 1; }
+	tunnel_exists "$section" || { cf_err "unknown section: $section"; return 1; }
+
+	bin="$(cf_find_binary)" || { cf_err "cloudflared binary not found"; return 1; }
+	cert="$(cf_cert_path "$section")"
+	dir="$(cf_tunnel_dir "$section")"
+	log="$CF_STATE_DIR/login-$section.log"
+	status="$CF_STATE_DIR/login-$section.status"
+	home="$dir/.login-home"
+	exitfile="$CF_STATE_DIR/login-$section.exit"
+
+	mkdir -p "$dir" "$home"
+
+	if [ -f "$cert" ] && [ "$force" != "1" ]; then
+		status_write "$status" \
+			"state=done" \
+			"url=" \
+			"message=cert.pem already exists"
+		cat "$status"
+		return 0
+	fi
+
+	if [ -f "$cert" ]; then
+		cp -f "$cert" "$cert.bak.$(date +%s)" 2>/dev/null || true
+	fi
+
+	: > "$log"
+	rm -f "$exitfile"
+	status_write "$status" \
+		"state=starting" \
+		"url=" \
+		"message=Starting cloudflared login"
+	printf '%s\n' "$home" > "$CF_STATE_DIR/login-$section.home"
+
+	/usr/bin/setsid sh -c 'HOME="$1" "$2" login > "$3" 2>&1; echo $? > "$4"' \
+		sh "$home" "$bin" "$log" "$exitfile" >/dev/null 2>&1 &
+	pid=$!
+	printf '%s\n' "$pid" > "$CF_STATE_DIR/login-$section.pid"
+	date +%s > "$CF_STATE_DIR/login-$section.started"
+
+	status_write "$status" \
+		"state=waiting" \
+		"url=" \
+		"message=cloudflared login started"
+	cat "$status"
+}
+
+cmd_login_status() {
+	local section="${1:-}"
+	local status log home pid exitfile url cert src started now tailmsg
+
+	[ -n "$section" ] || { cf_err "missing section"; return 1; }
+	tunnel_exists "$section" || { cf_err "unknown section: $section"; return 1; }
+
+	status="$CF_STATE_DIR/login-$section.status"
+	log="$CF_STATE_DIR/login-$section.log"
+	home="$(cat "$CF_STATE_DIR/login-$section.home" 2>/dev/null || true)"
+	pid="$(cat "$CF_STATE_DIR/login-$section.pid" 2>/dev/null || true)"
+	exitfile="$CF_STATE_DIR/login-$section.exit"
+	started="$(cat "$CF_STATE_DIR/login-$section.started" 2>/dev/null || true)"
+	cert="$(cf_cert_path "$section")"
+
+	url="$(grep -oE 'https://dash\.cloudflare\.com[^[:space:]]*' "$log" 2>/dev/null | head -n 1)"
+
+	src=""
+	for p in "$home/.cloudflared/cert.pem" "/root/.cloudflared/cert.pem" "${HOME:-/root}/.cloudflared/cert.pem"; do
+		if [ -n "$p" ] && [ -f "$p" ]; then
+			src="$p"
+			break
+		fi
+	done
+
+	if [ -n "$src" ]; then
+		mkdir -p "$(dirname "$cert")"
+		cp -f "$src" "$cert" || {
+			cf_err "failed to install cert to $cert"
+			return 1
+		}
+		chmod 600 "$cert" 2>/dev/null || true
+		cf_set "$section" cert_path "$cert"
+		cf_commit
+		[ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+		status_write "$status" \
+			"state=done" \
+			"url=$url" \
+			"cert=$cert" \
+			"message=Authorized"
+		cat "$status"
+		return 0
+	fi
+
+	if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+		now="$(date +%s)"
+		if [ -n "$started" ] && [ "$((now - started))" -gt 600 ]; then
+			kill "$pid" 2>/dev/null || true
+			status_write "$status" \
+				"state=failed" \
+				"url=$url" \
+				"message=Authorization timed out"
+			cat "$status"
+			return 1
+		fi
+		status_write "$status" \
+			"state=waiting" \
+			"url=$url" \
+			"message=Waiting for authorization"
+		cat "$status"
+		return 0
+	fi
+
+	tailmsg="$(tail -n 6 "$log" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g')"
+	[ -n "$tailmsg" ] || tailmsg="Login process exited without cert.pem"
+	status_write "$status" \
+		"state=failed" \
+		"url=$url" \
+		"message=$tailmsg"
+	cat "$status"
+	return 1
+}
+
+cmd_install_cert() {
+	local section="${1:-}"
+	local src="${2:-}"
+	local dir cert size
+
+	[ -n "$section" ] || { cf_err "missing section"; return 1; }
+	[ -f "$src" ] || { cf_err "file not found: $src"; return 1; }
+	tunnel_exists "$section" || { cf_err "unknown section: $section"; return 1; }
+	size="$(wc -c < "$src" 2>/dev/null | tr -d ' ')"
+	if [ -n "$size" ] && [ "$size" -gt 65536 ]; then
+		cf_err "certificate file too large"
+		return 1
+	fi
+	grep -q 'BEGIN CERTIFICATE' "$src" || { cf_err "not a PEM certificate"; return 1; }
+
+	dir="$(cf_tunnel_dir "$section")"
+	mkdir -p "$dir"
+	cert="$dir/cert.pem"
+	cp -f "$src" "$cert" || return 1
+	chmod 600 "$cert" 2>/dev/null || true
+
+	cf_set "$section" cert_path "$cert"
+	cf_commit
+
+	printf 'OK cert=%s\n' "$cert"
+}
+
+cmd_tunnel_create() {
+	local section="${1:-}"
+	local reqname="${2:-}"
+	local bin cert dir home out uuid creds credpath name
+
+	[ -n "$section" ] || { cf_err "missing section"; return 1; }
+	tunnel_exists "$section" || { cf_err "unknown section: $section"; return 1; }
+
+	bin="$(cf_find_binary)" || { cf_err "cloudflared binary not found"; return 1; }
+	cert="$(cf_cert_path "$section")"
+	[ -f "$cert" ] || {
+		cf_err "cert.pem not found; click Authorize first"
+		return 1
+	}
+
+	name="$reqname"
+	[ -n "$name" ] || name="$(cf_get "$section" name)"
+	[ -n "$name" ] || name="tunnel-$(date +%s)"
+
+	cf_log "Creating Cloudflare tunnel '$name' (section $section)"
+	dir="$(cf_tunnel_dir "$section")"
+	home="$dir/.create-home"
+	mkdir -p "$dir" "$home/.cloudflared" || return 1
+
+	out="$(HOME="$home" "$bin" tunnel --origincert "$cert" create "$name" 2>&1)"
+	if [ $? -ne 0 ]; then
+		rm -rf "$home"
+		cf_err "$out"
+		return 1
+	fi
+
+	uuid="$(printf '%s' "$out" | sed -n 's/.* with id \([0-9a-fA-F-]*\).*/\1/p' | head -n 1)"
+	credpath="$(printf '%s' "$out" | sed -n 's/.*Tunnel credentials written to \([^ ]*\)\..*/\1/p' | head -n 1)"
+
+	creds=""
+	if [ -n "$credpath" ] && [ -f "$credpath" ]; then
+		creds="$credpath"
+	fi
+	if [ -z "$creds" ] && [ -n "$uuid" ] && [ -f "$home/.cloudflared/$uuid.json" ]; then
+		creds="$home/.cloudflared/$uuid.json"
+	fi
+	if [ -z "$creds" ]; then
+		creds="$(find "$home/.cloudflared" -maxdepth 1 -name '*.json' -type f 2>/dev/null | head -n 1)"
+	fi
+	if [ -z "$uuid" ] && [ -n "$creds" ]; then
+		uuid="$(basename "$creds" .json)"
+	fi
+	if [ -z "$creds" ] && [ -n "$uuid" ] && [ -f "$(cf_base_path)/$uuid.json" ]; then
+		creds="$(cf_base_path)/$uuid.json"
+	fi
+	if [ -z "$uuid" ] || [ -z "$creds" ] || [ ! -f "$creds" ]; then
+		rm -rf "$home"
+		cf_err "failed to determine new tunnel credentials: $out"
+		return 1
+	fi
+
+	mkdir -p "$dir"
+	if cp -f "$creds" "$dir/$uuid.json" 2>/dev/null; then
+		creds="$dir/$uuid.json"
+	fi
+	rm -rf "$home"
+
+	cf_set "$section" tunnel_id "$uuid"
+	cf_set "$section" credentials_file "$creds"
+	cf_set "$section" name "$name"
+	cf_commit
+
+	cf_log "Created Cloudflare tunnel '$name' with id $uuid"
+	printf 'ok=1\ntunnel_id=%s\ncredentials=%s\nname=%s\n' \
+		"$uuid" "$creds" "$name"
+}
+
+cmd_install_credentials() {
+	local section="${1:-}"
+	local src="${2:-}"
+	local dir tid dest size
+
+	[ -n "$section" ] || { cf_err "missing section"; return 1; }
+	[ -f "$src" ] || { cf_err "file not found: $src"; return 1; }
+	tunnel_exists "$section" || { cf_err "unknown section: $section"; return 1; }
+	size="$(wc -c < "$src" 2>/dev/null | tr -d ' ')"
+	if [ -n "$size" ] && [ "$size" -gt 65536 ]; then
+		cf_err "credentials file too large"
+		return 1
+	fi
+
+	grep -q '"TunnelID"' "$src" || { cf_err "credentials missing TunnelID"; return 1; }
+	grep -q '"TunnelSecret"' "$src" || { cf_err "credentials missing TunnelSecret"; return 1; }
+
+	tid="$(sed -n 's/.*"TunnelID"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$src" | head -n 1)"
+	[ -n "$tid" ] || { cf_err "cannot parse TunnelID"; return 1; }
+
+	dir="$(cf_tunnel_dir "$section")"
+	mkdir -p "$dir"
+	dest="$dir/$tid.json"
+	cp -f "$src" "$dest" || return 1
+	chmod 600 "$dest" 2>/dev/null || true
+
+	cf_set "$section" tunnel_id "$tid"
+	cf_set "$section" credentials_file "$dest"
+	cf_commit
+
+	printf 'OK tunnel_id=%s credentials=%s\n' "$tid" "$dest"
+}
+
+cmd_core_install() {
+	local url_override="${1:-}"
+	local base target asset url status log tmp avail ver
+	local expected actual digest api
+
+	base="$(cf_base_path)"
+	target="$(cf_get main cloudflared_path)"
+	if [ -z "$target" ]; then
+		if [ -x "$base/cloudflared" ]; then
+			target="$base/cloudflared"
+		elif [ -x /usr/bin/cloudflared ]; then
+			target="/usr/bin/cloudflared"
+		else
+			target="$base/cloudflared"
+		fi
+	fi
+	status="$CF_STATE_DIR/core-install.status"
+	log="$CF_STATE_DIR/core-install.log"
+
+	mkdir -p "$CF_STATE_DIR"
+	echo $$ > "$CF_STATE_DIR/core-install.pid"
+	trap 'rm -f "$CF_STATE_DIR/core-install.pid"' EXIT INT TERM
+
+	mkdir -p "$(dirname "$target")"
+
+	asset="$(cf_arch_asset)" || {
+		status_write "$status" \
+			"state=failed" \
+			"version=" \
+			"target=$target" \
+			"message=Unsupported architecture: $(uname -m)"
+		cat "$status"
+		return 1
+	}
+
+	if [ -n "$url_override" ]; then
+		url="$url_override"
+	else
+		url="$(cf_download_url)/$asset"
+	fi
+
+	avail="$(df -k "$(dirname "$target")" 2>/dev/null | awk 'NR==2 {print $4}')"
+	if [ -n "$avail" ] && [ "$avail" -lt 65536 ]; then
+		status_write "$status" \
+			"state=failed" \
+			"version=" \
+			"target=$target" \
+			"message=Not enough free space (${avail}KB available, need about 64MB)"
+		cat "$status"
+		return 1
+	fi
+
+	status_write "$status" \
+		"state=downloading" \
+		"version=" \
+		"target=$target" \
+		"message=Downloading $asset"
+	: > "$log"
+	tmp="$target.download.$$"
+
+	if command -v curl >/dev/null 2>&1; then
+		curl -fL --retry 3 --connect-timeout 10 -o "$tmp" "$url" >> "$log" 2>&1
+	elif command -v wget >/dev/null 2>&1; then
+		wget -O "$tmp" "$url" >> "$log" 2>&1
+	else
+		status_write "$status" \
+			"state=failed" \
+			"version=" \
+			"target=$target" \
+			"message=curl or wget not found"
+		cat "$status"
+		return 1
+	fi
+
+	if [ ! -s "$tmp" ]; then
+		rm -f "$tmp"
+		status_write "$status" \
+			"state=failed" \
+			"version=" \
+			"target=$target" \
+			"message=Download failed, see $log"
+		cat "$status"
+		return 1
+	fi
+
+	expected="$(cf_get main core_sha256)"
+	if [ -z "$expected" ] && [ "${url#https://github.com/cloudflare/cloudflared/releases/}" != "$url" ]; then
+		api="https://api.github.com/repos/cloudflare/cloudflared/releases/latest"
+		digest="$(curl -fsSL --connect-timeout 10 "$api" 2>/dev/null | awk -v asset="$asset" '
+			/"name":/ { want = (index($0, "\"" asset "\"") > 0) }
+			/"digest":/ && want {
+				sub(/.*sha256:/, "");
+				sub(/".*/, "");
+				print;
+				exit
+			}
+		')"
+		[ -n "$digest" ] && expected="$digest"
+	fi
+	if [ -n "$expected" ] && command -v sha256sum >/dev/null 2>&1; then
+		actual="$(sha256sum "$tmp" 2>/dev/null | awk '{print $1}')"
+		if [ "$actual" != "$expected" ]; then
+			rm -f "$tmp"
+			status_write "$status" \
+				"state=failed" \
+				"version=" \
+				"target=$target" \
+				"message=Checksum mismatch"
+			cat "$status"
+			return 1
+		fi
+	elif [ -z "$expected" ]; then
+		cf_log "WARN: checksum not available for $asset; skipping verification"
+	else
+		cf_log "WARN: sha256sum not available; skipping verification"
+	fi
+
+	status_write "$status" \
+		"state=verifying" \
+		"version=" \
+		"target=$target" \
+		"message=Verifying binary"
+
+	chmod 755 "$tmp" 2>/dev/null || true
+	ver="$("$tmp" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
+	if [ -z "$ver" ]; then
+		rm -f "$tmp"
+		status_write "$status" \
+			"state=failed" \
+			"version=" \
+			"target=$target" \
+			"message=Downloaded binary is not executable"
+		cat "$status"
+		return 1
+	fi
+
+	if [ -f "$target" ]; then
+		cp -f "$target" "$target.old" 2>/dev/null || true
+	fi
+
+	if ! mv -f "$tmp" "$target"; then
+		rm -f "$tmp"
+		status_write "$status" \
+			"state=failed" \
+			"version=" \
+			"target=$target" \
+			"message=Failed to install to $target"
+		cat "$status"
+		return 1
+	fi
+
+	chmod 755 "$target" 2>/dev/null || true
+	cf_set main cloudflared_path "$target"
+	cf_commit
+
+	status_write "$status" \
+		"state=done" \
+		"version=$ver" \
+		"target=$target" \
+		"message=Installed version $ver"
+	cat "$status"
+}
+
+cmd_core_asset() {
+	local asset
+
+	asset="$(cf_arch_asset)" || {
+		cf_err "Unsupported architecture: $(uname -m)"
+		return 1
+	}
+
+	printf 'asset=%s\n' "$asset"
+	printf 'arch=%s\n' "$(uname -m)"
+	printf 'url=%s\n' "$(cf_download_url)/$asset"
+}
+
+cmd_check() {
+	local bin section enabled out errors=0 count=0 msg=""
+
+	bin="$(cf_find_binary)" || {
+		printf 'ok=0\nmessage=cloudflared binary not found\n'
+		return 1
+	}
+
+	for section in $(cf_tunnel_sections); do
+		enabled="$(cf_get "$section" enabled 1)"
+		[ "$enabled" = "1" ] || continue
+		count=$((count + 1))
+
+		local tid creds json_tid
+		tid="$(cf_get "$section" tunnel_id)"
+		creds="$(cf_credentials "$section" 2>/dev/null)"
+		if [ -n "$creds" ]; then
+			if ! grep -q '"TunnelID"' "$creds" 2>/dev/null || ! grep -q '"TunnelSecret"' "$creds" 2>/dev/null; then
+				errors=$((errors + 1))
+				msg="$msg | $section: credentials file is missing TunnelID or TunnelSecret"
+			fi
+		fi
+		if [ -n "$tid" ] && [ -n "$creds" ]; then
+			json_tid="$(sed -n 's/.*"TunnelID"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$creds" | head -n 1)"
+			if [ -n "$json_tid" ] && [ "$json_tid" != "$tid" ]; then
+				errors=$((errors + 1))
+				msg="$msg | $section: TunnelID in credentials ($json_tid) does not match tunnel_id ($tid)"
+			fi
+		fi
+
+		if ! out="$(cf_gen_config "$section" 2>&1)"; then
+			errors=$((errors + 1))
+			msg="$msg | $section: $out"
+		fi
+	done
+
+	if [ "$count" -eq 0 ]; then
+		printf 'ok=0\nmessage=No enabled tunnels configured\n'
+		return 1
+	fi
+	if [ "$errors" -ne 0 ]; then
+		printf 'ok=0\nmessage=%s\n' "$(printf '%s' "$msg" | tr '\n' ' ')"
+		return 1
+	fi
+
+	printf 'ok=1\nmessage=ready\n'
+}
+
+cmd_clear_logs() {
+	mkdir -p "$CF_LOG_DIR" 2>/dev/null
+	: > "$CF_APP_LOG" 2>/dev/null
+	: > "$CF_CORE_LOG" 2>/dev/null
+	printf 'OK\n'
+}
+
+cmd_core_latest() {
+	local asset url loc ver
+
+	asset="$(cf_arch_asset)" || {
+		cf_err "Unsupported architecture: $(uname -m)"
+		return 1
+	}
+	url="$(cf_download_url)/$asset"
+
+	if command -v curl >/dev/null 2>&1; then
+		loc="$(curl -fsSI --connect-timeout 10 --retry 2 "$url" 2>/dev/null |
+			sed -n 's/^[Ll]ocation:[[:space:]]*//p' | tr -d '\r' | tail -n 1)"
+	elif command -v wget >/dev/null 2>&1; then
+		loc="$(wget --server-response --spider --timeout=10 "$url" 2>&1 |
+			sed -n 's/^[[:space:]]*[Ll]ocation:[[:space:]]*//p' | tr -d '\r' | tail -n 1)"
+	else
+		cf_err "curl or wget not found"
+		return 1
+	fi
+
+	[ -n "$loc" ] || { cf_err "cannot determine latest version"; return 1; }
+
+	ver="$(printf '%s' "$loc" | sed -n 's#.*/releases/download/\([^/]*\)/.*#\1#p')"
+	[ -n "$ver" ] || { cf_err "cannot parse latest version"; return 1; }
+
+	printf 'latest=%s\n' "${ver#v}"
+}
+
+cmd_core_status() {
+	local status bin state pid started now
+
+	status="$CF_STATE_DIR/core-install.status"
+	if [ -f "$status" ]; then
+		state="$(sed -n 's/^state=//p' "$status" | head -n 1)"
+		case "$state" in
+			starting|downloading|verifying)
+				pid="$(cat "$CF_STATE_DIR/core-install.pid" 2>/dev/null | tr -d '\r\n')"
+				if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+					started="$(cat "$CF_STATE_DIR/core-install.started" 2>/dev/null | tr -d '\r\n')"
+					case "$started" in ''|*[!0-9]*) started=0 ;; esac
+					now="$(date +%s)"
+					if [ "$started" -eq 0 ] || [ $((now - started)) -gt 30 ]; then
+						status_write "$status" \
+							"state=failed" \
+							"version=" \
+							"target=" \
+							"message=Previous install task is no longer running"
+					fi
+				fi
+				;;
+		esac
+		cat "$status"
+	else
+		printf 'state=idle\nversion=\ntarget=\nmessage=No install task\n'
+	fi
+
+	bin="$(cf_find_binary 2>/dev/null)" || bin=""
+	if [ -n "$bin" ]; then
+		printf 'binary=%s\n' "$bin"
+		printf 'current_version=%s\n' "$(cf_version "$bin")"
+	else
+		printf 'binary=\n'
+		printf 'current_version=\n'
+	fi
+}
+
+cmd_version() {
+	local bin="${1:-}"
+
+	if [ -z "$bin" ]; then
+		bin="$(cf_find_binary)" || bin=""
+	fi
+	[ -n "$bin" ] && [ -x "$bin" ] || { cf_err "cloudflared binary not found"; return 1; }
+	"$bin" --version 2>&1
+}
+
+cmd_tunnel_sections() {
+	local section
+
+	for section in $(cf_tunnel_sections); do
+		printf '%s\n' "$section"
+	done
+}
+
+main() {
+	local cmd="${1:-}"
+
+	[ $# -gt 0 ] && shift
+
+	case "$cmd" in
+		gen-config)          cmd_gen_config "$@" ;;
+		get-config-path)     cmd_get_config_path "$@" ;;
+		domain-switch)       cmd_domain_switch "$@" ;;
+		dns-sync)            cmd_dns_sync "$@" ;;
+		status)              cmd_status "$@" ;;
+		version)             cmd_version "$@" ;;
+		login-start)         cmd_login_start "$@" ;;
+		login-status)        cmd_login_status "$@" ;;
+		install-cert)        cmd_install_cert "$@" ;;
+		install-credentials) cmd_install_credentials "$@" ;;
+		tunnel-create)       cmd_tunnel_create "$@" ;;
+		core-install)        cmd_core_install "$@" ;;
+		check)               cmd_check "$@" ;;
+		clear-logs)          cmd_clear_logs "$@" ;;
+		core-asset)          cmd_core_asset "$@" ;;
+		core-latest)         cmd_core_latest "$@" ;;
+		core-status)         cmd_core_status "$@" ;;
+		tunnel-sections)     cmd_tunnel_sections "$@" ;;
+		ingress-sections)    cmd_ingress_sections "$@" ;;
+		-h|--help|help|"")   usage ;;
+		*)                   cf_err "unknown command: $cmd"; usage; return 1 ;;
+	esac
+}
+
+main "$@"

@@ -70,7 +70,7 @@ info "$(t "Base path" "基础路径"): $BASE_PATH"
 mkdir -p "$BASE_PATH"
 
 # ===== Step 1: Download cloudflared =====
-step "$(t "Step 1/3: Download cloudflared" "步骤 1/3：下载 cloudflared")"
+step "$(t "Step 1/4: Download cloudflared" "步骤 1/4：下载 cloudflared")"
 
 BIN_PATH="$BASE_PATH/$BIN_NAME"
 
@@ -107,7 +107,7 @@ if [ -z "$SKIP_DOWNLOAD" ]; then
 fi
 
 # ===== Step 2: Authenticate (get cert.pem) =====
-step "$(t "Step 2/3: Authenticate with Cloudflare" "步骤 2/3：与 Cloudflare 认证")"
+step "$(t "Step 2/4: Authenticate with Cloudflare" "步骤 2/4：与 Cloudflare 认证")"
 
 CERT_PATH="$BASE_PATH/cert.pem"
 
@@ -157,7 +157,7 @@ if [ -z "$SKIP_AUTH" ]; then
 fi
 
 # ===== Step 3: Create tunnel =====
-step "$(t "Step 3/3: Create tunnel" "步骤 3/3：创建隧道")"
+step "$(t "Step 3/4: Create tunnel" "步骤 3/4：创建隧道")"
 
 # Check if tunnel JSON already exists
 EXISTING_JSON=$(find "$BASE_PATH" -maxdepth 1 -name "*.json" -type f 2>/dev/null | head -1)
@@ -216,6 +216,34 @@ if [ -z "$SKIP_TUNNEL" ]; then
     info "$(t "Tunnel ID:" "隧道 ID：") $TUNNEL_ID"
 fi
 
+# ===== Step 4: Register with LuCI =====
+step "$(t "Step 4/4: Register with LuCI" "步骤 4/4：注册到 LuCI")"
+
+printf "  %s" "$(t "Enter root domain (optional, press Enter to skip): " "请输入根域名（可选，直接回车跳过）：")"
+read -r ROOT_DOMAIN
+
+uci -q get cloudflared.main >/dev/null 2>&1 || uci set cloudflared.main=main
+uci set cloudflared.main.base_path="$BASE_PATH"
+uci set cloudflared.main.config_version=2
+
+uci set cloudflared.default=tunnel
+uci set cloudflared.default.name=default
+uci set cloudflared.default.enabled=1
+uci set cloudflared.default.data_dir="$BASE_PATH"
+if [ -n "${TUNNEL_ID:-}" ]; then
+    uci set cloudflared.default.tunnel_id="$TUNNEL_ID"
+fi
+uci set cloudflared.default.cert_path="$CERT_PATH"
+if [ -n "${TUNNEL_ID:-}" ] && [ -f "$BASE_PATH/$TUNNEL_ID.json" ]; then
+    uci set cloudflared.default.credentials_file="$BASE_PATH/$TUNNEL_ID.json"
+fi
+if [ -n "${ROOT_DOMAIN:-}" ]; then
+    uci set cloudflared.default.domain="$ROOT_DOMAIN"
+    uci set cloudflared.default.applied_domain="$ROOT_DOMAIN"
+fi
+uci commit cloudflared
+info "$(t "LuCI configuration updated." "LuCI 配置已更新。")"
+
 # ===== Done =====
 step "$(t "Setup complete!" "设置完成！")"
 
@@ -235,5 +263,6 @@ printf "  4. Click Save & Apply\n"
 printf "\n"
 info "Hot update (no reinstall needed):"
 printf "  cloudflared-hotupdate --domain your-new-domain.com\n"
-printf "  cloudflared-hotupdate   # force re-login + cert refresh only\n"
+printf "  cloudflared-hotupdate --reauth   # force re-login + cert refresh\n"
+printf "  cloudflared-hotupdate            # regenerate config + dns sync\n"
 printf "\n"

@@ -1,0 +1,39 @@
+#!/bin/sh
+# Synchronize the scheduled log-clear crontab entry from UCI.
+. /usr/lib/cloudflared/common.sh
+
+CRON_FILE="/etc/crontabs/root"
+MARK="#cloudflared-log-clear"
+
+mkdir -p /etc/crontabs 2>/dev/null
+touch "$CRON_FILE" 2>/dev/null
+sed -i "/$MARK/d" "$CRON_FILE" 2>/dev/null
+
+for f in "$CF_APP_LOG" "$CF_CORE_LOG"; do
+	[ -f "$f" ] || continue
+	size="$(wc -c < "$f" 2>/dev/null | tr -d ' ')"
+	[ -n "$size" ] && [ "$size" -gt 5242880 ] && : > "$f"
+done
+
+enabled="$(cf_get log scheduled_clear 0)"
+expr="$(cf_get log scheduled_clear_cron '')"
+
+lines="$(printf '%s' "$expr" | wc -l | tr -d ' ')"
+if [ "$lines" -gt 0 ]; then
+	cf_log "WARN: rejected multi-line cron expression"
+	expr=""
+fi
+
+if [ -n "$expr" ]; then
+	if ! printf '%s' "$expr" | grep -Eq '^[0-9*/,-]+([[:space:]]+[0-9*/,-]+){4}$'; then
+		cf_log "WARN: rejected invalid cron expression: $expr"
+		expr=""
+	fi
+fi
+
+if [ "$enabled" = "1" ] && [ -n "$expr" ]; then
+	printf '%s /usr/bin/cloudflared-ctl clear-logs %s\n' "$expr" "$MARK" >> "$CRON_FILE"
+fi
+
+[ -x /etc/init.d/cron ] && /etc/init.d/cron restart >/dev/null 2>&1
+exit 0

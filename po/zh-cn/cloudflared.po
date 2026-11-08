@@ -136,3 +136,459 @@ msgstr "重启服务"
 
 msgid "Restart"
 msgstr "重启"
+
+msgid "No tunnel configured"
+msgstr "尚未配置隧道"
+
+msgid "Tunnels"
+msgstr "隧道"
+
+msgid "Binary"
+msgstr "程序"
+
+msgid "Version"
+msgstr "版本"
+
+msgid "Directory for tunnel data, cert.pem and downloaded binary."
+msgstr "存放隧道数据、cert.pem 和已下载程序的目录。"
+
+msgid "Default Certificate Path"
+msgstr "默认证书路径"
+
+msgid "Download URL"
+msgstr "下载地址"
+
+msgid "Base URL for cloudflared releases. Useful for mirrors."
+msgstr "cloudflared 发布文件的基础地址，可使用镜像。"
+
+msgid "Allow DNS Deletion"
+msgstr "允许删除 DNS 记录"
+
+msgid "Disabled by default. Only delete records matching the current tunnel target when enabled."
+msgstr "默认关闭。开启后仅删除匹配当前隧道目标的记录。"
+
+msgid "Cloudflared Core"
+msgstr "Cloudflared 核心"
+
+msgid "Architecture"
+msgstr "架构"
+
+msgid "Current version"
+msgstr "当前版本"
+
+msgid "Install / Update"
+msgstr "安装 / 更新"
+
+msgid "Check Status"
+msgstr "检查状态"
+
+msgid "Cloudflare Tunnels"
+msgstr "Cloudflare 隧道"
+
+msgid "Each tunnel has its own domain, credentials and config.yml."
+msgstr "每个隧道拥有独立的域名、凭据和 config.yml。"
+
+msgid "Please enter a domain first"
+msgstr "请先填写域名"
+
+msgid "Switch domain and hot reload"
+msgstr "切换域名并热重载"
+
+msgid "Choose a file first"
+msgstr "请先选择文件"
+
+msgid "Name"
+msgstr "名称"
+
+msgid "Enabled"
+msgstr "启用"
+
+msgid "Root domain of this tunnel, e.g. example.com."
+msgstr "该隧道的根域名，例如 example.com。"
+
+msgid "Tunnel ID"
+msgstr "隧道 ID"
+
+msgid "Cloudflare tunnel UUID. Must be unique."
+msgstr "Cloudflare 隧道 UUID，必须唯一。"
+
+msgid "Tunnel ID already used by another tunnel"
+msgstr "隧道 ID 已被其他隧道使用"
+
+msgid "Data Directory"
+msgstr "数据目录"
+
+msgid "Leave empty to use <base_path>/tunnels/<section>."
+msgstr "留空则使用 <基础路径>/tunnels/<section>。"
+
+msgid "Credentials File"
+msgstr "凭据文件"
+
+msgid "Leave empty to auto-detect <tunnel_id>.json in the data directory."
+msgstr "留空则在数据目录中自动查找 <tunnel_id>.json。"
+
+msgid "API Token Override"
+msgstr "API 令牌覆盖"
+
+msgid "Optional. Required only when this tunnel belongs to another Cloudflare account."
+msgstr "可选。仅当该隧道属于另一个 Cloudflare 账号时需要。"
+
+msgid "Domain Status"
+msgstr "域名状态"
+
+msgid "Applied"
+msgstr "已生效"
+
+msgid "Pending hot reload"
+msgstr "待热重载"
+
+msgid "Actions"
+msgstr "操作"
+
+msgid "Hot Reload"
+msgstr "热重载"
+
+msgid "Sync DNS"
+msgstr "同步 DNS"
+
+msgid "Authorize"
+msgstr "授权"
+
+msgid "Certificate & Credentials"
+msgstr "证书与凭据"
+
+msgid "Upload cert.pem or tunnel credentials JSON for a tunnel. The background login flow can also obtain cert.pem."
+msgstr "为隧道上传 cert.pem 或隧道凭据 JSON。后台登录流程也可以获取 cert.pem。"
+
+msgid "Tunnel"
+msgstr "隧道"
+
+msgid "Upload"
+msgstr "上传"
+
+msgid "Upload cert.pem"
+msgstr "上传 cert.pem"
+
+msgid "Upload credentials.json"
+msgstr "上传 credentials.json"
+
+msgid "Map public hostnames to local services."
+msgstr "将公网主机名映射到本地服务。"
+
+msgid "Save & Apply regenerates config.yml, syncs missing DNS CNAME records and restarts the service."
+msgstr "保存并应用会重新生成 config.yml、同步缺失的 DNS CNAME 记录并重启服务。"
+
+msgid "Hostname"
+msgstr "主机名"
+
+msgid "Full hostname, e.g. app.example.com."
+msgstr "完整主机名，例如 app.example.com。"
+
+msgid "Upload cert.pem or tunnel credentials JSON, then click Save & Apply."
+msgstr "上传 cert.pem 或隧道凭据 JSON，然后点击保存并应用。"
+
+msgid "Core updated. Restart the service to apply."
+msgstr "核心已更新，请重启服务以生效。"
+
+msgid "Copy URL"
+msgstr "复制链接"
+
+msgid "Upload cert.pem or tunnel credentials JSON, then click Save & Apply. If the browser cannot reach the router, download cert.pem from Cloudflare and upload it here."
+msgstr "上传 cert.pem 或隧道凭据 JSON，然后点击保存并应用。如果浏览器无法访问路由器，请从 Cloudflare 下载 cert.pem 后在此上传。"
+
+msgid "There are orphaned DNS records that will be deleted. Continue?"
+msgstr "存在将被删除的孤立 DNS 记录，是否继续？"
+
+msgid "Rewrite hostnames"
+msgstr "重写主机名"
+
+msgid "Upload cert.pem or tunnel credentials JSON, then click Save & Apply. Changes are applied automatically. If the browser cannot reach the router, download cert.pem from Cloudflare and upload it here."
+msgstr "上传 cert.pem 或隧道凭据 JSON，然后点击保存并应用，修改会自动生效。如果浏览器无法访问路由器，请从 Cloudflare 下载 cert.pem 后在此上传。"
+
+msgid "Preparing download..."
+msgstr "准备下载..."
+
+msgid "Downloading Cloudflared core..."
+msgstr "正在下载 Cloudflared 核心..."
+
+msgid "Verifying binary..."
+msgstr "正在校验程序..."
+
+msgid "Cloudflared core is up to date."
+msgstr "Cloudflared 核心已是最新版本。"
+
+msgid "Download failed"
+msgstr "下载失败"
+
+msgid "Cloudflared core not found. Click \"Install / Update\" to download it."
+msgstr "未找到 Cloudflared 核心，请点击“安装 / 更新”下载。"
+
+msgid "Download Core"
+msgstr "下载核心"
+
+msgid "Upload Core"
+msgstr "上传核心"
+
+msgid "Uploading..."
+msgstr "正在上传..."
+
+msgid "Upload failed"
+msgstr "上传失败"
+
+msgid "Upload complete, reloading..."
+msgstr "上传完成，正在刷新..."
+
+msgid "Unsupported architecture"
+msgstr "不支持的架构"
+
+msgid "Connection"
+msgstr "连接状态"
+
+msgid "Core Status"
+msgstr "核心状态"
+
+msgid "Installed"
+msgstr "已安装"
+
+msgid "Missing"
+msgstr "缺失"
+
+msgid "Checking for updates..."
+msgstr "正在检查更新..."
+
+msgid "Already the latest version, no update needed."
+msgstr "已是最新版本，无需更新。"
+
+msgid "Install timed out. Check the log for details."
+msgstr "安装超时，请查看日志了解详情。"
+
+msgid "Enable on boot"
+msgstr "开机自启"
+
+msgid "Failed to update auto-start setting"
+msgstr "更新开机自启设置失败"
+
+msgid "Cloudflared Log"
+msgstr "Cloudflared 日志"
+
+msgid "View plugin and core logs, with optional scheduled clearing."
+msgstr "查看插件日志和 Cloudflared 核心日志，可配置定时清理。"
+
+msgid "Log Settings"
+msgstr "日志设置"
+
+msgid "Plugin Log"
+msgstr "插件日志"
+
+msgid "Core Log"
+msgstr "核心日志"
+
+msgid "Scheduled Clear"
+msgstr "定时清理"
+
+msgid "Cron Expression"
+msgstr "Cron 表达式"
+
+msgid "Standard five-field cron expression, e.g. 0 3 * * *."
+msgstr "标准五段 Cron 表达式，例如 0 3 * * *。"
+
+msgid "Clear At Stop"
+msgstr "停止时清空"
+
+msgid "Filter expression (grep -E)"
+msgstr "过滤表达式（grep -E）"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Clear"
+msgstr "清空"
+
+msgid "Scroll To Bottom"
+msgstr "滚动到底部"
+
+msgid "Disabled"
+msgstr "关闭"
+
+msgid "Clear the current log?"
+msgstr "确定清空当前日志？"
+
+msgid "Failed to load log"
+msgstr "加载日志失败"
+
+msgid "Log"
+msgstr "日志"
+
+msgid "Please enter a tunnel name first"
+msgstr "请先填写隧道名称"
+
+msgid "Create a new Cloudflare tunnel"
+msgstr "创建一个新的 Cloudflare 隧道"
+
+msgid "This will replace the current Tunnel ID."
+msgstr "这将替换当前 Tunnel ID。"
+
+msgid "Create Tunnel"
+msgstr "创建隧道"
+
+msgid "Creating..."
+msgstr "创建中..."
+
+msgid "Creating tunnel"
+msgstr "正在创建隧道"
+
+msgid "Tunnel created"
+msgstr "隧道创建成功"
+
+msgid "Create failed"
+msgstr "创建失败"
+
+msgid "No log content yet."
+msgstr "暂无日志内容。"
+
+msgid "Unix Socket"
+msgstr "Unix 套接字"
+
+msgid "HTTP Status"
+msgstr "HTTP 状态码"
+
+msgid "IP / Host"
+msgstr "IP / 主机"
+
+msgid "Unix Socket Path"
+msgstr "Unix 套接字路径"
+
+msgid "HTTP Status Code"
+msgstr "HTTP 状态码"
+
+msgid "Check"
+msgstr "检查"
+
+msgid "Test"
+msgstr "测试"
+
+msgid "Tunnel not running"
+msgstr "隧道未运行"
+
+msgid "Public"
+msgstr "公网"
+
+msgid "The Test button checks the saved backend target, tunnel status and DNS record."
+msgstr "测试按钮会检查已保存的后端目标、隧道运行状态和 DNS 记录。"
+
+msgid "Origin Host Header"
+msgstr "源站 Host 头"
+
+msgid "Optional. Host header sent to the origin. Useful when the origin vhost expects a specific name."
+msgstr "可选。发送给源站的 Host 头，适用于源站虚拟主机需要特定域名的情况。"
+
+msgid "Skip Origin TLS Verify"
+msgstr "跳过源站 TLS 校验"
+
+msgid "Enable for HTTPS origins with self-signed certificates."
+msgstr "源站使用自签名 HTTPS 证书时启用。"
+
+msgid "Origin TLS Server Name"
+msgstr "源站 TLS 服务器名"
+
+msgid "Optional. Override the TLS server name used for HTTPS origins."
+msgstr "可选。覆盖 HTTPS 源站使用的 TLS 服务器名。"
+
+msgid "Hot reloading"
+msgstr "正在热重载"
+
+msgid "Columns"
+msgstr "显示列"
+
+msgid "Checking..."
+msgstr "检测中..."
+
+msgid "Reset"
+msgstr "恢复默认"
+
+msgid "Ingress Path"
+msgstr "入站路径"
+
+msgid "Optional. URL path prefix for HTTP/HTTPS ingress rules."
+msgstr "可选。HTTP/HTTPS 入站规则的 URL 路径前缀。"
+
+msgid "Connect Timeout"
+msgstr "连接超时"
+
+msgid "Origin connection timeout, e.g. 30s."
+msgstr "源站连接超时，例如 30s。"
+
+msgid "TLS Timeout"
+msgstr "TLS 超时"
+
+msgid "Origin TLS handshake timeout, e.g. 10s."
+msgstr "源站 TLS 握手超时，例如 10s。"
+
+msgid "TCP KeepAlive"
+msgstr "TCP KeepAlive"
+
+msgid "Origin TCP keepalive interval, e.g. 30s."
+msgstr "源站 TCP keepalive 间隔，例如 30s。"
+
+msgid "Disable Happy Eyeballs"
+msgstr "禁用 Happy Eyeballs"
+
+msgid "Disable parallel IPv4/IPv6 connection attempts."
+msgstr "禁用 IPv4/IPv6 并行连接尝试。"
+
+msgid "Proxy Address"
+msgstr "代理地址"
+
+msgid "Optional SOCKS/HTTP proxy address for the origin connection."
+msgstr "可选。源站连接的 SOCKS/HTTP 代理地址。"
+
+msgid "Proxy Port"
+msgstr "代理端口"
+
+msgid "Optional proxy port."
+msgstr "可选。代理端口。"
+
+msgid "Proxy Type"
+msgstr "代理类型"
+
+msgid "Optional origin proxy protocol."
+msgstr "可选。源站代理协议。"
+
+msgid "HTTP/2 Origin"
+msgstr "HTTP/2 源站"
+
+msgid "Use HTTP/2 when connecting to the origin."
+msgstr "连接源站时使用 HTTP/2。"
+
+msgid "Disable Chunked Encoding"
+msgstr "禁用分块编码"
+
+msgid "Disable chunked transfer encoding for HTTP origins."
+msgstr "对 HTTP 源站禁用分块传输编码。"
+
+msgid "KeepAlive Connections"
+msgstr "KeepAlive 连接数"
+
+msgid "Number of keepalive connections to the origin."
+msgstr "到源站的 keepalive 连接数。"
+
+msgid "KeepAlive Timeout"
+msgstr "KeepAlive 超时"
+
+msgid "Keepalive timeout for HTTP origins, e.g. 90s."
+msgstr "HTTP 源站的 keepalive 超时，例如 90s。"
+
+msgid "CA Pool"
+msgstr "CA 证书池"
+
+msgid "Optional CA bundle path used to verify HTTPS origins."
+msgstr "可选。用于校验 HTTPS 源站的 CA 证书包路径。"
+
+msgid "Bastion Mode"
+msgstr "堡垒模式"
+
+msgid "Enable bastion mode for SSH origins."
+msgstr "为 SSH 源站启用堡垒模式。"
+
+msgid "Confirm Protocol Change"
+msgstr "确认切换协议"

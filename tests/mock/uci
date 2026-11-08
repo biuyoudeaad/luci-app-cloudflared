@@ -1,0 +1,58 @@
+#!/bin/sh
+# Minimal UCI mock used by the test suite.
+# Reads sections from $MOCK_TYPE and options from $MOCK_DB.
+
+DB="${MOCK_DB:-/tmp/cf-mock-db}"
+TYPE="${MOCK_TYPE:-/tmp/cf-mock-type}"
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		-q|-X) shift ;;
+		*) break ;;
+	esac
+done
+
+cmd="${1:-}"
+[ $# -gt 0 ] && shift
+
+case "$cmd" in
+	get)
+		key="${1:-}"
+		value="$(grep -m1 "^$key=" "$DB" 2>/dev/null | sed 's/^[^=]*=//')"
+		if [ -z "$value" ]; then
+			value="$(grep -m1 "^$key=" "$TYPE" 2>/dev/null | sed 's/^[^=]*=//')"
+		fi
+		printf '%s' "$value"
+		[ -n "$value" ]
+		;;
+	set)
+		pair="${1:-}"
+		key="${pair%%=*}"
+		value="${pair#*=}"
+		grep -v "^$key=" "$DB" > "$DB.tmp" 2>/dev/null || :
+		mv "$DB.tmp" "$DB" 2>/dev/null || :
+		printf '%s=%s\n' "$key" "$value" >> "$DB"
+		;;
+	delete)
+		key="${1:-}"
+		grep -v "^$key=" "$DB" > "$DB.tmp" 2>/dev/null || :
+		mv "$DB.tmp" "$DB" 2>/dev/null || :
+		;;
+	show)
+		case "${1:-}" in
+			-*) printf 'uci: invalid option after command\n' >&2; exit 255 ;;
+		esac
+		cat "$TYPE" 2>/dev/null
+		while IFS='=' read -r key value; do
+			case "$key" in
+				cloudflared.*.*) printf "%s='%s'\n" "$key" "$value" ;;
+				cloudflared.*) printf "%s=%s\n" "$key" "$value" ;;
+			esac
+		done < "$DB" 2>/dev/null
+		;;
+	commit|apply)
+		:
+		;;
+esac
+
+exit 0

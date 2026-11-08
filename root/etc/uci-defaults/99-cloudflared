@@ -1,10 +1,82 @@
 #!/bin/sh
-# First-install: ensure init script is executable and enable service
+# First-install / upgrade migration for luci-app-cloudflared.
 
 chmod +x /etc/init.d/cloudflared 2>/dev/null
 /etc/init.d/cloudflared enable 2>/dev/null
 
-# Create default base directory
-mkdir -p /opt/cloudflare
+BASE="$(uci -q get cloudflared.main.base_path 2>/dev/null)"
+[ -n "$BASE" ] || BASE="/opt/cloudflare"
+mkdir -p "$BASE"
+mkdir -p /etc/luci-uploads /tmp/cloudflared /var/log/cloudflared 2>/dev/null || true
+
+if ! uci -q get cloudflared.log >/dev/null 2>&1; then
+	uci -q set cloudflared.log=log
+	uci -q set cloudflared.log.scheduled_clear=0
+	uci -q set cloudflared.log.scheduled_clear_cron='0 3 * * *'
+	uci -q set cloudflared.log.clear_at_stop=0
+	uci -q commit cloudflared
+fi
+
+VERSION="$(uci -q get cloudflared.main.config_version 2>/dev/null)"
+TUNNELS="$(uci -q -X show cloudflared 2>/dev/null | sed -n 's/^cloudflared\.\([^.=]*\)=tunnel$/\1/p')"
+
+if [ "$VERSION" = "2" ] && [ -n "$TUNNELS" ]; then
+	exit 0
+fi
+
+OLD_DOMAIN="$(uci -q get cloudflared.main.domain 2>/dev/null)"
+OLD_CERT="$(uci -q get cloudflared.main.cert_path 2>/dev/null)"
+
+find_json() {
+	local d f
+
+	for d in "$BASE" "$HOME/.cloudflared" "/root/.cloudflared"; do
+		[ -d "$d" ] || continue
+		f="$(find "$d" -maxdepth 1 -name '*.json' -type f 2>/dev/null | head -n 1)"
+		if [ -n "$f" ]; then
+			printf '%s' "$f"
+			return 0
+		fi
+	done
+
+	return 1
+}
+
+if [ -z "$TUNNELS" ]; then
+	JSON="$(find_json 2>/dev/null || true)"
+	if [ -n "$OLD_DOMAIN" ] || [ -f "$BASE/config.yml" ] || [ -n "$JSON" ]; then
+		TID=""
+		[ -n "$JSON" ] && TID="$(basename "$JSON" .json)"
+
+		uci -q set cloudflared.default=tunnel
+		uci -q set cloudflared.default.name=default
+		uci -q set cloudflared.default.enabled=1
+		uci -q set cloudflared.default.data_dir="$BASE"
+		[ -n "$TID" ] && uci -q set cloudflared.default.tunnel_id="$TID"
+		if [ -n "$OLD_DOMAIN" ]; then
+			uci -q set cloudflared.default.domain="$OLD_DOMAIN"
+			uci -q set cloudflared.default.applied_domain="$OLD_DOMAIN"
+		fi
+		if [ -n "$OLD_CERT" ]; then
+			uci -q set cloudflared.default.cert_path="$OLD_CERT"
+		elif [ -f "$BASE/cert.pem" ]; then
+			uci -q set cloudflared.default.cert_path="$BASE/cert.pem"
+		fi
+		[ -n "$JSON" ] && uci -q set cloudflared.default.credentials_file="$JSON"
+
+		TUNNELS="default"
+	fi
+fi
+
+DEFAULT_TUNNEL="$(printf '%s\n' "$TUNNELS" | head -n 1)"
+if [ -n "$DEFAULT_TUNNEL" ]; then
+	for section in $(uci -q -X show cloudflared 2>/dev/null | sed -n 's/^cloudflared\.\([^.=]*\)=ingress$/\1/p'); do
+		CUR="$(uci -q get "cloudflared.$section.tunnel" 2>/dev/null)"
+		[ -n "$CUR" ] || uci -q set "cloudflared.$section.tunnel=$DEFAULT_TUNNEL"
+	done
+fi
+
+uci -q set cloudflared.main.config_version=2
+uci -q commit cloudflared
 
 exit 0

@@ -4,55 +4,43 @@ START=99
 STOP=10
 USE_PROCD=1
 
-find_binary() {
-	local base_path="$1"
-	local custom_path
-
-	config_get custom_path main cloudflared_path ""
-
-	if [ -n "$custom_path" ] && [ -x "$custom_path" ]; then
-		echo "$custom_path"
-		return 0
-	fi
-
-	# Auto-detect in base_path
-	for f in "$base_path/cloudflared" "$base_path"/cloudflared-linux-*; do
-		if [ -x "$f" ]; then
-			echo "$f"
-			return 0
-		fi
-	done
-
-	# Fallback to PATH
-	if [ -x "/usr/bin/cloudflared" ]; then
-		echo "/usr/bin/cloudflared"
-		return 0
-	fi
-
-	return 1
-}
+. /usr/lib/cloudflared/common.sh
 
 start_service() {
-	config_load cloudflared
+	local bin section
 
-	local base_path
-	config_get base_path main base_path "/opt/cloudflare"
-
-	local bin
-	bin=$(find_binary "$base_path")
-	if [ -z "$bin" ]; then
-		logger -t cloudflared "ERROR: cloudflared binary not found"
+	mkdir -p "$CF_LOG_DIR" 2>/dev/null
+	bin="$(cf_find_binary)" || {
+		cf_log "ERROR: cloudflared binary not found"
 		return 1
-	fi
+	}
 
-	local config_file="$base_path/config.yml"
-	if [ ! -f "$config_file" ]; then
-		logger -t cloudflared "ERROR: $config_file not found"
+	cf_log "Starting cloudflared service"
+	for section in $(cf_tunnel_sections); do
+		start_one "$section" "$bin" || true
+	done
+
+	/usr/bin/cloudflared-log-cron >/dev/null 2>&1 || true
+}
+
+start_one() {
+	local section="$1"
+	local bin="$2"
+	local enabled cfg name
+
+	enabled="$(cf_get "$section" enabled 1)"
+	[ "$enabled" = "1" ] || return 0
+
+	name="$(cf_get "$section" name)"
+	cfg="$(cf_gen_config "$section")" || {
+		cf_log "ERROR: failed to generate config for tunnel '${name:-$section}'"
 		return 1
-	fi
+	}
 
-	procd_open_instance
-	procd_set_param command "$bin" --config "$config_file" tunnel run
+	cf_log "Starting tunnel '${name:-$section}'"
+	procd_open_instance "tunnel_$section"
+	procd_set_param command /bin/sh -c 'exec "$0" --config "$1" tunnel run >> "$2" 2>&1' \
+		"$bin" "$cfg" "$CF_CORE_LOG"
 	procd_set_param respawn
 	procd_set_param stdout 1
 	procd_set_param stderr 1
@@ -60,5 +48,12 @@ start_service() {
 }
 
 stop_service() {
-	:
+	local clear
+
+	cf_log "Stopping cloudflared service"
+	clear="$(cf_get log clear_at_stop 0)"
+	if [ "$clear" = "1" ]; then
+		: > "$CF_APP_LOG" 2>/dev/null
+		: > "$CF_CORE_LOG" 2>/dev/null
+	fi
 }

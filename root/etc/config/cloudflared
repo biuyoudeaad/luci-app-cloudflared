@@ -1,2 +1,10 @@
 config main 'main'
 	option base_path '/opt/cloudflare'
+	option config_version '2'
+	option download_url 'https://github.com/cloudflare/cloudflared/releases/latest/download'
+	option allow_dns_delete '0'
+
+config log 'log'
+	option scheduled_clear '0'
+	option scheduled_clear_cron '0 3 * * *'
+	option clear_at_stop '0'

@@ -39,15 +39,29 @@ jobs:
           # Data: copy all files from root/
           cp -a root/* build/data/
           chmod 755 build/data/etc/init.d/cloudflared
+          chmod 755 build/data/etc/uci-defaults/99-cloudflared
+          chmod 755 build/data/usr/bin/cloudflared-ctl
+          chmod 755 build/data/usr/bin/cloudflared-hotupdate
+          chmod 755 build/data/usr/lib/cloudflared/common.sh
           chmod 644 build/data/etc/config/cloudflared
           find build/data -type d -exec chmod 755 {} \;
+
+          # Shell syntax check
+          for f in \
+            build/data/etc/init.d/cloudflared \
+            build/data/etc/uci-defaults/99-cloudflared \
+            build/data/usr/bin/cloudflared-ctl \
+            build/data/usr/bin/cloudflared-hotupdate \
+            build/data/usr/lib/cloudflared/common.sh; do
+            sh -n "$f" || exit 1
+          done
 
           # Control file
           INSTALLED_SIZE=$(du -sb build/data | cut -f1)
           cat > build/control/control <<EOF
           Package: ${PKG_NAME}
           Version: ${VERSION}-1
-          Depends: libc, curl, luci-base
+          Depends: libc, curl, ca-bundle, luci-base
           Source: https://github.com/${{ github.repository }}
           SourceName: ${PKG_NAME}
           Section: luci
@@ -87,6 +101,19 @@ jobs:
           echo "=== Package built ==="
           ls -lh output/
           cat build/control/control
+
+      - name: Lua syntax check
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+          for f in $(find build/data/usr/lib/lua -name '*.lua'); do
+            echo "checking $f"
+            luac5.1 -p "$f" || exit 1
+          done
+
+      - name: Run tests
+        run: |
+          LUA_BIN=lua5.1 sh tests/run.sh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
