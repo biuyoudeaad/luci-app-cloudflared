@@ -34,6 +34,7 @@ if [ -n "$LUA_BIN" ]; then
 	echo "== lua: orphan dns and change detection =="
 	"$LUA_BIN" "$TESTDIR/lua/test_orphan_dns.lua"
 	"$LUA_BIN" "$TESTDIR/lua/test_snapshot.lua"
+	"$LUA_BIN" "$TESTDIR/lua/test_site_stats.lua"
 else
 	echo "lua not found, skipping Lua tests"
 fi

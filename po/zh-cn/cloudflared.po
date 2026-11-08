@@ -155,6 +155,15 @@ msgstr "站点"
 msgid "Abnormal"
 msgstr "异常"
 
+msgid "Site Disabled"
+msgstr "禁用"
+
+msgid "Site statistics unavailable. Refresh to retry."
+msgstr "站点统计暂不可用，请刷新重试。"
+
+msgid "Site counts use saved ingress rules. Running means valid configuration, a running tunnel process and a synced CNAME; origin reachability is not tested. Pending sync means the CNAME is missing. Abnormal includes invalid configuration, stopped tunnels or unavailable DNS checks. Disabled includes disabled rules or tunnels."
+msgstr "按已保存的入站规则统计。运行中：配置有效、所属隧道进程运行且 CNAME 已同步，未检测源站可达性；待同步：CNAME 缺失；异常：配置无效、隧道停止或 DNS 无法检查；禁用：规则或所属隧道已关闭。"
+
 msgid "Binary"
 msgstr "程序"
 

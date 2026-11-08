@@ -105,6 +105,8 @@ function action()
 		result = common.action_test_ingress(p)
 	elseif name == "ingress_dns" then
 		result = common.action_ingress_dns()
+	elseif name == "site_stats" then
+		result = common.action_site_stats()
 	elseif name == "core_check" then
 		result = common.action_core_check()
 	elseif name == "core_install" then

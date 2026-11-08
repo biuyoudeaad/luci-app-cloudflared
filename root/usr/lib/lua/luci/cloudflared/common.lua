@@ -302,7 +302,7 @@ function M.cf_api(method, path, token)
 		return nil
 	end
 	local cmd = string.format(
-		"curl -s -X %s %s -H %s -H 'Content-Type: application/json' 2>/dev/null",
+		"curl -s --connect-timeout 5 --max-time 15 -X %s %s -H %s -H 'Content-Type: application/json' 2>/dev/null",
 		method,
 		M.shellquote("https://api.cloudflare.com/client/v4" .. path),
 		M.shellquote("Authorization: Bearer " .. token)
@@ -328,12 +328,12 @@ end
 function M.fetch_tunnel_dns(token, tunnel_id, domain)
 	local records = {}
 	if not token or not tunnel_id or not domain then
-		return records
+		return records, false
 	end
 
 	local zone_id = M.get_zone_id(token, domain)
 	if not zone_id then
-		return records
+		return records, false
 	end
 
 	local target = tunnel_id .. ".cfargotunnel.com"
@@ -345,8 +345,9 @@ function M.fetch_tunnel_dns(token, tunnel_id, domain)
 				records[r.name] = { id = r.id, zone_id = zone_id }
 			end
 		end
+		return records, true
 	end
-	return records
+	return records, false
 end
 
 function M.delete_orphan_dns(section)
@@ -785,7 +786,7 @@ function M.test_backend(scheme, host, port, extra, host_header, no_tls, server_n
 end
 
 function M.cached_tunnel_dns(section, token, tunnel_id, domain)
-	local key = section .. "-" .. tunnel_id
+	local key = "v2-" .. section .. "-" .. tunnel_id .. "-" .. domain
 	local path = M.STATE_DIR .. "/dns-" .. key .. ".cache"
 	local mtime = fs.stat(path, "mtime")
 	local now = os.time()
@@ -796,17 +797,20 @@ function M.cached_tunnel_dns(section, token, tunnel_id, domain)
 		for host in data:gmatch("[^\n]+") do
 			records[host] = true
 		end
-		return records
+		return records, true
 	end
 
-	local records = M.fetch_tunnel_dns(token, tunnel_id, domain)
+	local records, success = M.fetch_tunnel_dns(token, tunnel_id, domain)
+	if success == false then
+		return records, false
+	end
 	local hosts = {}
 	for host in pairs(records) do
 		hosts[#hosts + 1] = host
 	end
 	fs.mkdirr(M.STATE_DIR)
 	fs.writefile(path, table.concat(hosts, "\n"))
-	return records
+	return records, true
 end
 
 function M.resolve_ingress_tunnel(tunnels, ts)
@@ -859,10 +863,11 @@ function M.action_ingress_dns()
 	local ready = {}
 	for _, t in ipairs(tunnels) do
 		if t.token ~= "" and t.domain ~= "" and t.tunnel_id ~= "" then
-			ready[t.section] = true
-			local r = M.cached_tunnel_dns(t.section, t.token, t.tunnel_id, t.domain)
+			local r, success = M.cached_tunnel_dns(t.section, t.token, t.tunnel_id, t.domain)
+			ready[t.section] = success ~= false
+			records[t.section] = {}
 			for host in pairs(r) do
-				records[host] = { section = t.section }
+				records[t.section][host] = true
 			end
 		end
 	end
@@ -879,7 +884,7 @@ function M.action_ingress_dns()
 			st = "disabled"
 		elseif not ready[ts] then
 			st = "unknown"
-		elseif records[host] and records[host].section == ts then
+		elseif records[ts] and records[ts][host] then
 			st = "synced"
 		else
 			st = "pending"
@@ -897,10 +902,12 @@ function M.action_ingress_dns()
 				ingress_hosts[sec.tunnel][sec.hostname] = true
 			end
 		end)
-		for host, rec in pairs(records) do
-			local hosts = ingress_hosts[rec.section]
-			if not hosts or not hosts[host] then
-				orphaned[#orphaned + 1] = host .. " (" .. rec.section .. ")"
+		for section, tunnel_records in pairs(records) do
+			local hosts = ingress_hosts[section]
+			for host in pairs(tunnel_records) do
+				if not hosts or not hosts[host] then
+					orphaned[#orphaned + 1] = host .. " (" .. section .. ")"
+				end
 			end
 		end
 	end
@@ -911,6 +918,54 @@ function M.action_ingress_dns()
 		orphaned = orphaned,
 		allow_delete = allow,
 	}
+end
+
+-- Classify each rule once; process state and DNS do not prove origin health.
+function M.site_state(rule, tunnel, dns_state, running)
+	if rule.enabled == "0" or (tunnel and tunnel.enabled == false) then
+		return "disabled"
+	end
+	if not tunnel or tunnel.tunnel_id == "" or not M.valid_domain(tunnel.domain) or
+	   not M.valid_domain((rule.hostname or ""):gsub("^%*%.", "")) then
+		return "abnormal"
+	end
+	local scheme, host, port, extra = M.parse_service(rule.service or "")
+	local supported = { http = true, https = true, tcp = true, ssh = true, rdp = true, smb = true }
+	local valid
+	if scheme == "unix" then
+		valid = extra and extra:sub(1, 1) == "/"
+	elseif scheme == "http_status" then
+		local code = tonumber(extra)
+		valid = code and code == math.floor(code) and code >= 100 and code <= 599
+	else
+		valid = supported[scheme or ""] and host ~= "" and port and port >= 1 and port <= 65535
+	end
+	if not valid or not running or (dns_state ~= "synced" and dns_state ~= "pending") then
+		return "abnormal"
+	end
+	return dns_state == "pending" and "pending" or "running"
+end
+
+function M.action_site_stats()
+	local cursor = uci.cursor()
+	local tunnels = M.list_tunnels()
+	local by_section = {}
+	for _, tunnel in ipairs(tunnels) do
+		by_section[tunnel.section] = tunnel
+	end
+	local service = jsonc.parse(sys.exec("ubus call service list '{\"name\":\"cloudflared\"}' 2>/dev/null") or "") or {}
+	local instances = service.cloudflared and service.cloudflared.instances or {}
+	local dns = M.action_ingress_dns().status or {}
+	local counts = { total = 0, running = 0, pending = 0, abnormal = 0, disabled = 0 }
+	cursor:foreach("cloudflared", "ingress", function(rule)
+		local section = M.resolve_ingress_tunnel(tunnels, rule.tunnel or "")
+		local instance = instances["tunnel_" .. section]
+		local state = M.site_state(rule, by_section[section], dns[rule[".name"]],
+			instance and instance.running == true)
+		counts[state] = counts[state] + 1
+		counts.total = counts.total + 1
+	end)
+	return { ok = true, counts = counts }
 end
 
 function M.action_test_ingress(p)

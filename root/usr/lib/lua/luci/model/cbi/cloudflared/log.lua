@@ -49,16 +49,17 @@ local function viewer_html(which, with_script)
 
 	if which == "app" then
 		html[#html + 1] = common.js_helpers()
-		html[#html + 1] = [[
+	end
+
+	html[#html + 1] = [[
 <style>
 .cf-log-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
 .cf-log-toolbar input.cf-log-filter{flex:1 1 240px;min-width:180px}
 .cf-log-toolbar select{min-width:110px}
-.cf-log-view{width:100%;height:62vh;min-height:420px;max-height:75vh;overflow:auto;white-space:pre-wrap;word-break:break-all;background:#fff;color:#111;border:1px solid #ccc;border-radius:6px;padding:12px;font-family:monospace;font-size:14px;line-height:1.5;margin:0}
-.cf-log-info{color:#666;font-size:.9em}
+.cf-log-view{width:100%;height:62vh;min-height:420px;max-height:75vh;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--surface-sunken,var(--v-surface-2,var(--s2,#fff)));color:var(--text,var(--v-text,#111));border:1px solid var(--hairline,var(--v-line-2,var(--line-2,#ccc)));border-radius:6px;padding:12px;font-family:monospace;font-size:14px;line-height:1.5;margin:0}
+.cf-log-info{color:var(--text-muted,var(--v-text-3,var(--text-3,#666)));font-size:.9em}
 </style>
 ]]
-	end
 
 	html[#html + 1] = [[
 <div class="cf-log-toolbar">

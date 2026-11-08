@@ -101,13 +101,11 @@ function cfTestIngress(sec) {
 </script>
 <style>
 #cf-ingress-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10000}
-#cf-ingress-modal .cf-modal-box{background:#fff;color:#222;max-width:760px;margin:4% auto;border-radius:8px;padding:18px 20px;max-height:86vh;overflow:auto;box-shadow:0 8px 30px rgba(0,0,0,.35)}
+#cf-ingress-modal .cf-modal-box{background:var(--surface-overlay,var(--v-surface,#fff));color:var(--text,var(--v-text,#222));max-width:760px;margin:4% auto;border-radius:8px;padding:18px 20px;max-height:86vh;overflow:auto;box-shadow:0 8px 30px rgba(0,0,0,.35)}
 #cf-ingress-modal h3{margin:0 0 14px;font-size:1.1em}
 .cf-setting-row{display:flex;gap:12px;align-items:flex-start;margin-bottom:10px}
 .cf-setting-row > label{flex:0 0 190px;font-weight:600;padding-top:6px}
 .cf-protocol-confirm{margin:-4px 0 12px 202px}
-.cbi-tblsection table th:nth-child(n+6):nth-child(-n+25),
-.cbi-tblsection table td:nth-child(n+6):nth-child(-n+25){display:none}
 .cf-setting-field{flex:1 1 auto;min-width:0}
 .cf-setting-field input[type=text],.cf-setting-field input[type=password],.cf-setting-field select{width:100%;box-sizing:border-box}
 .cf-setting-desc{color:#777;font-size:.85em;margin-top:3px}
@@ -124,7 +122,8 @@ function cfTestIngress(sec) {
 #cbi-cloudflared-ingress table td select.cbi-input-select,
 #cbi-cloudflared-ingress table td .cbi-dropdown{display:block;width:100%!important;max-width:100%;min-width:0;box-sizing:border-box}
 #cbi-cloudflared-ingress table td input.cbi-input-text,
-#cbi-cloudflared-ingress table td select.cbi-input-select{height:36px!important;min-height:36px;padding:6px 10px!important;border:1px solid #c7ced6;border-radius:6px;background-color:#fff;box-sizing:border-box}
+#cbi-cloudflared-ingress table td select.cbi-input-select{height:36px!important;min-height:36px;padding:6px 10px!important;border:1px solid var(--hairline,var(--v-line-2,var(--line-2,#c7ced6)));border-radius:6px;background-color:var(--control-bg,var(--v-surface-2,var(--s2,#fff)));color:var(--text,var(--v-text,#1f2933));box-sizing:border-box}
+#cbi-cloudflared-ingress table td input.cbi-input-text::placeholder{color:var(--text-subtle,var(--v-text-3,var(--text-3,#8a949e)));opacity:1}
 #cbi-cloudflared-ingress table td input.cbi-input-text{text-align:left}
 #cbi-cloudflared-ingress table td select.cbi-input-select{text-align:left;text-align-last:left;padding-right:26px!important}
 #cbi-cloudflared-ingress table td input.cbi-input-text:focus,
@@ -170,14 +169,6 @@ function cfTestIngress(sec) {
 		"origin_keepalive_connections", "origin_keepalive_timeout",
 		"origin_ca_pool", "origin_bastion_mode"
 	];
-	var modalOnly = [
-		"ingress_path",
-		"origin_connect_timeout", "origin_tls_timeout", "origin_tcp_keepalive",
-		"origin_no_happy_eyeballs", "origin_proxy_address", "origin_proxy_port",
-		"origin_proxy_type", "origin_http2", "origin_disable_chunked",
-		"origin_keepalive_connections", "origin_keepalive_timeout",
-		"origin_ca_pool", "origin_bastion_mode"
-	];
 	var columnDefs = [
 		["tunnel", true],
 		["hostname", true],
@@ -189,6 +180,20 @@ function cfTestIngress(sec) {
 		["_test", true],
 		["enabled", true]
 	];
+	// Everything the settings dialog offers that is not a managed table
+	// column stays in the dialog only. Deriving it prevents the manual list
+	// from drifting when a field is added to the dialog.
+	var modalOnly = [];
+	(function() {
+		var inline = {};
+		columnDefs.forEach(function(def) {
+			var key = def[0];
+			inline[key] = true;
+		});
+		modalFields.forEach(function(name) {
+			if (!inline[name]) modalOnly.push(name);
+		});
+	})();
 	var columnLabels = {
 		tunnel: "]] .. translate("Tunnel") .. [[",
 		hostname: "]] .. translate("Hostname") .. [[",
@@ -229,7 +234,35 @@ function cfTestIngress(sec) {
 	var state = null;
 
 	function opt(sec, name) {
-		return document.getElementById("cbid.cloudflared." + sec + "." + name);
+		var row = rowForSection(sec);
+		var cell = row && row.querySelector('[data-name="' + name + '"]');
+		if (cell) return cell;
+		return document.getElementById("cbid.cloudflared." + sec + "." + name) ||
+			document.getElementById("cbi-cloudflared-" + sec + "-" + name);
+	}
+
+	function tableRows(table) {
+		return table ? table.querySelectorAll("tr, .tr") : [];
+	}
+
+	function rowCells(row) {
+		return row ? row.querySelectorAll(":scope > td, :scope > .td, :scope > th, :scope > .th") : [];
+	}
+
+	function fieldCell(el) {
+		if (!el) return null;
+		if (el.matches && el.matches("td, .td")) return el;
+		return el.closest("td, .td");
+	}
+
+	function cellIndex(cell) {
+		if (!cell) return -1;
+		if (typeof cell.cellIndex === "number") return cell.cellIndex;
+		return Array.prototype.indexOf.call(rowCells(cell.parentNode), cell);
+	}
+
+	function rowForSection(section) {
+		return document.getElementById("cbi-cloudflared-" + section);
 	}
 
 	function valueEl(el) {
@@ -315,13 +348,14 @@ function cfTestIngress(sec) {
 		modalFields.forEach(function(name) {
 			var el = opt(sec, name);
 			if (!el) return;
-			var td = el.closest("td");
+			var td = fieldCell(el);
 			if (!td) return;
 
 			var title = name;
-			var table = row.closest("table");
-			if (table && table.rows.length) {
-				var th = table.rows[0].cells[td.cellIndex];
+			var table = row.closest(".table, table");
+			var titleRow = table && table.querySelector(":scope > thead > tr, :scope > thead > .tr, :scope > .cbi-section-table-titles, :scope > tbody > .cbi-section-table-titles, :scope > tr.cbi-section-table-titles");
+			if (titleRow) {
+				var th = rowCells(titleRow)[cellIndex(td)];
 				if (th) title = th.textContent.replace(/^\s+|\s+$/g, "");
 			}
 
@@ -442,7 +476,7 @@ function cfTestIngress(sec) {
 		try {
 			localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
 		} catch (e) {}
-		var firstRow = document.querySelector("tr.cbi-section-table-row[id^='cbi-cloudflared-']");
+		var firstRow = document.querySelector(".cbi-section-table-row[id^='cbi-cloudflared-']");
 		if (firstRow) applyColumns(firstRow);
 	}
 
@@ -457,26 +491,42 @@ function cfTestIngress(sec) {
 			el = document.getElementById("cf-test-" + sec);
 		else
 			el = opt(sec, key);
-		return el ? el.closest("td") : null;
+		return fieldCell(el);
 	}
 
 	function applyColumns(firstRow) {
-		var table = firstRow ? firstRow.closest("table") : null;
+		var table = firstRow ? firstRow.closest(".table, table") : null;
 		if (!table) return;
 
 		var visible = {};
 		var weights = {};
-		var maxColumns = table.rows[0] ? table.rows[0].cells.length : 0;
+		var rows = tableRows(table);
+		var titleRow = null;
+		for (var h = 0; h < rows.length; h++) {
+			if (rows[h].classList.contains("cbi-section-table-titles")) {
+				titleRow = rows[h];
+				break;
+			}
+		}
+		var titleCells = rowCells(titleRow);
+		var maxColumns = titleCells.length;
 		columnDefs.forEach(function(def) {
 			var key = def[0], dflt = def[1];
 			var cell = cellForColumn(firstRow, key);
 			if (!cell) return;
-			var idx = cell.cellIndex;
+			var idx = cellIndex(cell);
 			var vis = isColumnVisible(key, dflt);
 			maxColumns = Math.max(maxColumns, idx + 1);
-			for (var r = 0; r < table.rows.length; r++) {
-				var c = table.rows[r].cells[idx];
-				if (c) c.style.display = vis ? "table-cell" : "none";
+			var fieldName = key;
+			for (var r = 0; r < rows.length; r++) {
+				var cells = rowCells(rows[r]);
+				var c = rows[r].querySelector('[data-name="' + fieldName + '"]');
+				if (!c) c = cells[idx];
+				if (c && !c.dataset.cfModalOnly)
+					c.style.display = vis ? "" : "none";
+			}
+			if (titleCells[idx]) {
+				titleCells[idx].style.display = vis ? "" : "none";
 			}
 			if (vis) {
 				visible[idx] = true;
@@ -484,10 +534,9 @@ function cfTestIngress(sec) {
 			}
 		});
 
-		var titleRow = table.rows[0];
 		if (!titleRow) return;
-		var actionsTh = titleRow.querySelector("th.cbi-section-actions");
-		var actionsIndex = actionsTh ? actionsTh.cellIndex : -1;
+		var actionsTh = titleRow.querySelector(".cbi-section-actions");
+		var actionsIndex = cellIndex(actionsTh);
 		if (actionsIndex >= 0) {
 			visible[actionsIndex] = true;
 			weights[actionsIndex] = columnWidths._actions || 9;
@@ -495,13 +544,25 @@ function cfTestIngress(sec) {
 		}
 		var testCell = cellForColumn(firstRow, "_test");
 		if (testCell) {
-			var testIndex = testCell.cellIndex;
-			var testHeader = titleRow.cells[testIndex];
+			var testIndex = cellIndex(testCell);
+			var testHeader = titleCells[testIndex];
 			if (testHeader) testHeader.classList.add("cf-test-heading");
-			for (var tr = 0; tr < table.rows.length; tr++) {
-				var testColumnCell = table.rows[tr].cells[testIndex];
+			for (var tr = 0; tr < rows.length; tr++) {
+				var testColumnCell = rowCells(rows[tr])[testIndex];
 				if (testColumnCell) testColumnCell.classList.add("cf-test-column");
 			}
+		}
+
+		if (table.tagName !== "TABLE") {
+			for (var cidx = 0; cidx < maxColumns; cidx++) {
+				var width = visible[cidx] ? (weights[cidx] / total * 100).toFixed(3) + "%" : "0%";
+				for (var ridx = 0; ridx < rows.length; ridx++) {
+					var cell = rowCells(rows[ridx])[cidx];
+					if (cell && !cell.dataset.cfModalOnly)
+						cell.style.width = width;
+				}
+			}
+			return;
 		}
 
 		var colgroup = table.querySelector("colgroup.cf-ingress-columns");
@@ -531,13 +592,17 @@ function cfTestIngress(sec) {
 	}
 
 	function buildColumnMenu(firstRow) {
-		var table = firstRow.closest("table");
+		var table = firstRow.closest(".table, table");
 		if (!table) return;
 		if (table.previousElementSibling &&
 		    table.previousElementSibling.classList.contains("cf-columns-toolbar"))
 			return;
 
-		var titleRow = table.rows[0];
+		var titleRow = null;
+		tableRows(table).forEach(function(row) {
+			if (!titleRow && row.classList.contains("cbi-section-table-titles")) titleRow = row;
+		});
+		var titleCells = rowCells(titleRow);
 		var toolbar = document.createElement("div");
 		toolbar.className = "cf-columns-toolbar";
 		toolbar.style.cssText = "display:flex;justify-content:flex-end;margin:4px 0 6px;position:relative";
@@ -548,12 +613,12 @@ function cfTestIngress(sec) {
 		btn.textContent = "]] .. translate("Columns") .. [[";
 
 		var menu = document.createElement("div");
-		menu.style.cssText = "display:none;position:absolute;right:0;top:100%;z-index:600;background:#fff;color:#222;border:1px solid #ccc;border-radius:6px;padding:8px 10px;min-width:240px;max-height:60vh;overflow:auto;box-shadow:0 4px 16px rgba(0,0,0,.2);text-align:left";
+		menu.style.cssText = "display:none;position:absolute;right:0;top:100%;z-index:600;background:var(--surface-overlay,var(--v-surface,#fff));color:var(--text,var(--v-text,#222));border:1px solid var(--hairline,var(--v-line-2,#ccc));border-radius:6px;padding:8px 10px;min-width:240px;max-height:60vh;overflow:auto;box-shadow:0 4px 16px rgba(0,0,0,.2);text-align:left";
 
 		columnDefs.forEach(function(def) {
 			var key = def[0], dflt = def[1];
 			var cell = cellForColumn(firstRow, key);
-			var th = cell && titleRow ? titleRow.cells[cell.cellIndex] : null;
+			var th = cell && titleRow ? titleCells[cellIndex(cell)] : null;
 			var label = (th && th.textContent.replace(/^\s+|\s+$/g, "")) ||
 				columnLabels[key] || key;
 
@@ -637,15 +702,33 @@ function cfTestIngress(sec) {
 	}
 
 	function setup() {
-		var firstRow = document.querySelector("tr.cbi-section-table-row[id^='cbi-cloudflared-']");
+		if (modal && modal.parentNode !== document.body)
+			document.body.appendChild(modal);
+
+		var firstRow = document.querySelector(".cbi-section-table-row[id^='cbi-cloudflared-']");
 		if (!firstRow) {
 			loadDns();
 			return;
 		}
 
-		document.querySelectorAll("tr.cbi-section-table-row[id^='cbi-cloudflared-']").forEach(function(row) {
+		initializeRows();
+
+		buildColumnMenu(firstRow);
+		applyColumns(firstRow);
+		var table = firstRow.closest(".table, table");
+		if (table && window.MutationObserver && !table._cfLayoutObserver) {
+			table._cfLayoutObserver = new MutationObserver(function() {
+				scheduleLayoutRefresh();
+			});
+			table._cfLayoutObserver.observe(table, { childList: true, subtree: true });
+		}
+		loadDns();
+	}
+
+	function initializeRows() {
+		document.querySelectorAll(".cbi-section-table-row[id^='cbi-cloudflared-']").forEach(function(row) {
 			var sec = row.id.substring("cbi-cloudflared-".length);
-			var actions = row.querySelector("td.cbi-section-actions > div");
+			var actions = row.querySelector(".cbi-section-actions > div");
 			if (actions && !actions.querySelector(".cf-settings-btn")) {
 				var btn = document.createElement("button");
 				btn.type = "button";
@@ -657,34 +740,32 @@ function cfTestIngress(sec) {
 			modalOnly.forEach(function(name) {
 				var el = opt(sec, name);
 				if (!el) return;
-				var td = el.closest("td");
+				var td = fieldCell(el);
 				if (!td) return;
 				td.style.display = "none";
-				var table = row.closest("table");
-				if (table && table.rows.length) {
-					var idx = td.cellIndex;
-					if (table.rows[0].cells[idx]) table.rows[0].cells[idx].style.display = "none";
-					var dr = table.querySelector("tr.cbi-section-table-descr");
-					if (dr && dr.cells[idx]) dr.cells[idx].style.display = "none";
+				var table = row.closest(".table, table");
+				var idx = cellIndex(td);
+				var rows = tableRows(table);
+				for (var r = 0; r < rows.length; r++) {
+					if (rows[r].classList.contains("cbi-section-table-titles") ||
+					    rows[r].classList.contains("cbi-section-table-descr")) {
+						var headerCell = rowCells(rows[r])[idx];
+						if (headerCell) {
+							headerCell.style.display = "none";
+							headerCell.dataset.cfModalOnly = "1";
+						}
+					}
 				}
 			});
 		});
-
-		buildColumnMenu(firstRow);
-		applyColumns(firstRow);
-		var table = firstRow.closest("table");
-		if (table && window.MutationObserver && !table._cfLayoutObserver) {
-			table._cfLayoutObserver = new MutationObserver(function() {
-				scheduleLayoutRefresh();
-			});
-			table._cfLayoutObserver.observe(table, { childList: true, subtree: true });
-		}
-		loadDns();
 	}
 
 	function refreshColumns() {
-		var firstRow = document.querySelector("tr.cbi-section-table-row[id^='cbi-cloudflared-']");
-		if (firstRow) applyColumns(firstRow);
+		var firstRow = document.querySelector(".cbi-section-table-row[id^='cbi-cloudflared-']");
+		if (firstRow) {
+			initializeRows();
+			applyColumns(firstRow);
+		}
 	}
 
 	var layoutTimers = [];

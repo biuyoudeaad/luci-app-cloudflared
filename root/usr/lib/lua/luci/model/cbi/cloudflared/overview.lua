@@ -37,21 +37,9 @@ uci:foreach("cloudflared", "tunnel", function(s)
 	end
 end)
 
-local site_total, site_running, site_abnormal, site_inactive = 0, 0, 0, 0
+local site_total = 0
 uci:foreach("cloudflared", "ingress", function(s)
 	site_total = site_total + 1
-	local enabled = s.enabled or "1"
-	local host = s.hostname or ""
-	local svc = s.service or ""
-	local ts = s.tunnel or ""
-
-	if enabled == "0" then
-		site_inactive = site_inactive + 1
-	elseif host ~= "" and svc ~= "" and (ts ~= "" or tunnel_count == 1) then
-		site_running = site_running + 1
-	else
-		site_abnormal = site_abnormal + 1
-	end
 end)
 
 local running = sys.call("pgrep -f 'cloudflared.*tunnel run' >/dev/null 2>&1") == 0
@@ -87,10 +75,32 @@ local stats_html = [[
 .cf-stat-sub .ok{color:#2e7d32;font-weight:600}
 .cf-stat-sub .bad{color:#c62828;font-weight:600}
 .cf-stat-sub .warn{color:#e67e22;font-weight:600}
+.cf-site-counts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;margin-top:5px;font-size:.85em;line-height:1.4}
+.cf-site-counts span{white-space:nowrap}
+.cf-site-running{color:#2e7d32}
+.cf-site-pending{color:#b58a00}
+.cf-site-abnormal{color:#c62828}
+.cf-site-disabled{color:#000}
+.cf-site-note{font-size:.76em;color:#777;margin-top:4px;white-space:normal}
 </style>
 <script>
 (function() {
+	function loadSiteStats() {
+		cfAction("site_stats", {}).then(function(result) {
+			var note = document.getElementById("cf-site-note");
+			if (!result || !result.ok || !result.counts) {
+				if (note) note.textContent = "]] .. translate("Site statistics unavailable. Refresh to retry.") .. [[";
+				return;
+			}
+			["total", "running", "pending", "abnormal", "disabled"].forEach(function(key) {
+				var el = document.getElementById("cf-site-" + key);
+				if (el) el.textContent = result.counts[key];
+			});
+			if (note) note.textContent = "";
+		});
+	}
 	function addGuideLink() {
+		loadSiteStats();
 		var title = document.querySelector(".cbi-map h2[name='content']");
 		if (!title || title.querySelector(".cf-guide-link")) return;
 		title.classList.add("cf-overview-title");
@@ -119,10 +129,15 @@ local stats_html = [[
 		<div class="cf-stat-value" title="]] .. translate("Tunnels") .. [[: ]] .. tostring(tunnel_count) .. [[">]] .. tostring(tunnel_count) .. [[</div>
 		<div class="cf-stat-sub">]] .. translate("Enabled") .. [[ ]] .. tostring(tunnel_enabled) .. [[ · ]] .. translate("Inactive") .. [[ ]] .. tostring(tunnel_count - tunnel_enabled) .. [[</div>
 	</div>
-	<div class="cf-stat ]] .. (site_abnormal > 0 and "warn" or "ok") .. [[">
-		<div class="cf-stat-label" title="]] .. translate("Sites") .. [[: ]] .. tostring(site_total) .. [[">]] .. translate("Sites") .. [[</div>
-		<div class="cf-stat-value"><span style="color:#2e7d32">]] .. translate("Running") .. [[ ]] .. tostring(site_running) .. [[</span></div>
-		<div class="cf-stat-sub"><span class="]] .. (site_abnormal > 0 and "bad" or "ok") .. [[">]] .. translate("Abnormal") .. [[ ]] .. tostring(site_abnormal) .. [[</span> · ]] .. translate("Inactive") .. [[ ]] .. tostring(site_inactive) .. [[</div>
+	<div class="cf-stat ok" title="]] .. translate("Site counts use saved ingress rules. Running means valid configuration, a running tunnel process and a synced CNAME; origin reachability is not tested. Pending sync means the CNAME is missing. Abnormal includes invalid configuration, stopped tunnels or unavailable DNS checks. Disabled includes disabled rules or tunnels.") .. [[">
+		<div class="cf-stat-label">]] .. translate("Sites") .. [[ · <span id="cf-site-total">]] .. tostring(site_total) .. [[</span></div>
+		<div class="cf-site-counts">
+			<span class="cf-site-running">]] .. translate("Running") .. [[ <strong id="cf-site-running">—</strong></span>
+			<span class="cf-site-pending">]] .. translate("Pending") .. [[ <strong id="cf-site-pending">—</strong></span>
+			<span class="cf-site-abnormal">]] .. translate("Abnormal") .. [[ <strong id="cf-site-abnormal">—</strong></span>
+			<span class="cf-site-disabled">]] .. translate("Site Disabled") .. [[ <strong id="cf-site-disabled">—</strong></span>
+		</div>
+		<div class="cf-site-note" id="cf-site-note">]] .. translate("Checking...") .. [[</div>
 	</div>
 	<div class="cf-stat ]] .. (bin and "ok" or "bad") .. [[">
 		<div class="cf-stat-label">]] .. translate("Core Status") .. [[</div>
