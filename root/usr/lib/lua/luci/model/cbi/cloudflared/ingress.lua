@@ -41,6 +41,25 @@ for _, t in ipairs(tunnels) do
 	end
 end
 
+local function resolve_tunnel(ts)
+	if not ts or ts == "" then
+		if #tunnels == 1 then return tunnels[1] end
+		return nil
+	end
+	if tunnel_by_section[ts] then
+		return tunnel_by_section[ts]
+	end
+	for _, t in ipairs(tunnels) do
+		if t.name == ts or t.tunnel_id == ts then
+			return t
+		end
+	end
+	if #tunnels == 1 then
+		return tunnels[1]
+	end
+	return nil
+end
+
 local ing_desc = translate("Save & Apply regenerates config.yml, syncs missing DNS CNAME records and restarts the service.") ..
 	"<br>" .. translate("The Test button checks the saved backend target, tunnel status and DNS record.") ..
 	'<div id="cf-orphan-warning"></div>'
@@ -54,7 +73,9 @@ local jso = jssec:option(DummyValue, "_js")
 jso.rawhtml = true
 jso.cfgvalue = function()
 	return common.js_helpers() .. [[
+<style>.cf-ingress-script-host{display:none!important}</style>
 <script>
+(function(){var s=document.currentScript;var h=s&&s.closest(".cbi-section");if(h)h.classList.add("cf-ingress-script-host")})();
 function cfTestIngress(sec) {
 	var box = document.getElementById("cf-test-" + sec);
 	if (box) {
@@ -63,6 +84,11 @@ function cfTestIngress(sec) {
 	}
 	cfAction("test_ingress", { section: sec }).then(function(r) {
 		if (!box) return;
+		if (r.disabled) {
+			box.textContent = "— " + (r.message || "]] .. translate("Disabled") .. [[");
+			box.title = JSON.stringify(r, null, 2);
+			return;
+		}
 		var parts = [];
 		if (r.backend) parts.push(r.backend);
 		if (r.tunnel_running === false) parts.push("]] .. translate("Tunnel not running") .. [[");
@@ -85,6 +111,39 @@ function cfTestIngress(sec) {
 .cf-setting-field{flex:1 1 auto;min-width:0}
 .cf-setting-field input[type=text],.cf-setting-field input[type=password],.cf-setting-field select{width:100%;box-sizing:border-box}
 .cf-setting-desc{color:#777;font-size:.85em;margin-top:3px}
+#cbi-cloudflared-ingress table{table-layout:fixed;width:100%}
+#cbi-cloudflared-ingress table th,
+#cbi-cloudflared-ingress table td{padding:7px 5px;vertical-align:middle;text-align:center}
+#cbi-cloudflared-ingress table th{font-weight:600}
+#cbi-cloudflared-ingress table th:first-child,
+#cbi-cloudflared-ingress table td:first-child{padding-left:12px}
+#cbi-cloudflared-ingress table th:last-child,
+#cbi-cloudflared-ingress table td:last-child{padding-right:12px}
+#cbi-cloudflared-ingress table td>div{width:100%;min-width:0;box-sizing:border-box}
+#cbi-cloudflared-ingress table td input.cbi-input-text,
+#cbi-cloudflared-ingress table td select.cbi-input-select,
+#cbi-cloudflared-ingress table td .cbi-dropdown{display:block;width:100%!important;max-width:100%;min-width:0;box-sizing:border-box}
+#cbi-cloudflared-ingress table td input.cbi-input-text,
+#cbi-cloudflared-ingress table td select.cbi-input-select{height:36px!important;min-height:36px;padding:6px 10px!important;border:1px solid #c7ced6;border-radius:6px;background-color:#fff;box-sizing:border-box}
+#cbi-cloudflared-ingress table td input.cbi-input-text{text-align:left}
+#cbi-cloudflared-ingress table td select.cbi-input-select{text-align:left;text-align-last:left;padding-right:26px!important}
+#cbi-cloudflared-ingress table td input.cbi-input-text:focus,
+#cbi-cloudflared-ingress table td select.cbi-input-select:focus{border-color:#6b9d21;outline:2px solid rgba(107,157,33,.16);outline-offset:0}
+#cbi-cloudflared-ingress table td.cbi-section-actions{white-space:normal!important}
+#cbi-cloudflared-ingress table td.cbi-section-actions>div{display:flex;flex-wrap:nowrap;gap:5px;justify-content:center;align-items:center;white-space:nowrap}
+#cbi-cloudflared-ingress table td.cbi-section-actions .btn{flex:0 0 auto;margin:0;min-height:34px;padding:5px 8px;border-radius:6px;white-space:nowrap}
+#cbi-cloudflared-ingress table td .cbi-checkbox{display:flex;width:100%;justify-content:center;align-items:center;margin:0 auto;padding:0;min-width:0}
+#cbi-cloudflared-ingress table td .cbi-checkbox input{margin:0}
+#cbi-cloudflared-ingress table td .cbi-checkbox label{margin:0}
+#cbi-cloudflared-ingress table td [id^="cf-dns-"]{display:flex;width:100%;justify-content:center;align-items:center;text-align:center;white-space:nowrap}
+#cbi-cloudflared-ingress table th.cf-test-heading,
+#cbi-cloudflared-ingress table td.cf-test-column{text-align:left;padding-left:12px}
+#cbi-cloudflared-ingress table td .cf-test-cell{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px;width:100%;min-width:0}
+#cbi-cloudflared-ingress table td .cf-test-button{flex:0 0 auto}
+#cbi-cloudflared-ingress table td .cf-test-result{display:block;flex:1 1 auto;min-width:0;max-width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere;font-size:12px;line-height:1.3}
+#cbi-cloudflared-ingress table td .cf-test-result:empty{display:none}
+#cbi-cloudflared-ingress table .cbi-section-table-descr td{padding:8px 12px;text-align:left;color:#77808a;font-size:.9em}
+@media (max-width:900px){#cbi-cloudflared-ingress{overflow-x:auto}#cbi-cloudflared-ingress table{min-width:1120px}}
 .cf-modal-actions{text-align:right;margin-top:16px;display:flex;gap:8px;justify-content:flex-end}
 @media (max-width:600px){.cf-setting-row{display:block}.cf-setting-row > label{display:block;margin-bottom:4px}.cf-protocol-confirm{margin-left:0}}
 </style>
@@ -128,11 +187,7 @@ function cfTestIngress(sec) {
 		["_service_summary", false],
 		["_dns_status", true],
 		["_test", true],
-		["_path", false],
-		["_status", false],
-		["origin_host_header", false],
-		["no_tls_verify", false],
-		["origin_server_name", false]
+		["enabled", true]
 	];
 	var columnLabels = {
 		tunnel: "]] .. translate("Tunnel") .. [[",
@@ -143,13 +198,21 @@ function cfTestIngress(sec) {
 		_service_summary: "]] .. translate("Service") .. [[",
 		_dns_status: "]] .. translate("DNS") .. [[",
 		_test: "]] .. translate("Check") .. [[",
-		_path: "]] .. translate("Unix Socket Path") .. [[",
-		_status: "]] .. translate("HTTP Status Code") .. [[",
-		origin_host_header: "]] .. translate("Origin Host Header") .. [[",
-		no_tls_verify: "]] .. translate("Skip Origin TLS Verify") .. [[",
-		origin_server_name: "]] .. translate("Origin TLS Server Name") .. [["
+		enabled: "]] .. translate("Enable") .. [["
 	};
-	var STORAGE_KEY = "cf-ingress-columns-v5";
+	var columnWidths = {
+		tunnel: 11,
+		hostname: 20,
+		_protocol: 9,
+		_ip: 15,
+		_port: 7,
+		_service_summary: 11,
+		_dns_status: 11,
+		_test: 17,
+		enabled: 5,
+		_actions: 15
+	};
+	var STORAGE_KEY = "cf-ingress-columns-v6";
 	var I18N = {
 		synced: "]] .. translate("Synced") .. [[",
 		pending: "]] .. translate("Pending") .. [[",
@@ -157,6 +220,7 @@ function cfTestIngress(sec) {
 		cname: "]] .. translate("CNAME record exists") .. [[",
 		willcreate: "]] .. translate("Will be created on next save") .. [[",
 		noconfig: "]] .. translate("Cannot check: missing config") .. [[",
+		disabled: "]] .. translate("Inactive") .. [[",
 		orphan: "]] .. translate("Orphaned DNS (will be deleted on save)") .. [[",
 		orphan_confirm: "]] .. translate("There are orphaned DNS records that will be deleted. Continue?") .. [["
 	};
@@ -400,17 +464,70 @@ function cfTestIngress(sec) {
 		var table = firstRow ? firstRow.closest("table") : null;
 		if (!table) return;
 
+		var visible = {};
+		var weights = {};
+		var maxColumns = table.rows[0] ? table.rows[0].cells.length : 0;
 		columnDefs.forEach(function(def) {
 			var key = def[0], dflt = def[1];
 			var cell = cellForColumn(firstRow, key);
 			if (!cell) return;
 			var idx = cell.cellIndex;
 			var vis = isColumnVisible(key, dflt);
+			maxColumns = Math.max(maxColumns, idx + 1);
 			for (var r = 0; r < table.rows.length; r++) {
 				var c = table.rows[r].cells[idx];
 				if (c) c.style.display = vis ? "table-cell" : "none";
 			}
+			if (vis) {
+				visible[idx] = true;
+				weights[idx] = columnWidths[key] || 8;
+			}
 		});
+
+		var titleRow = table.rows[0];
+		if (!titleRow) return;
+		var actionsTh = titleRow.querySelector("th.cbi-section-actions");
+		var actionsIndex = actionsTh ? actionsTh.cellIndex : -1;
+		if (actionsIndex >= 0) {
+			visible[actionsIndex] = true;
+			weights[actionsIndex] = columnWidths._actions || 9;
+			maxColumns = Math.max(maxColumns, actionsIndex + 1);
+		}
+		var testCell = cellForColumn(firstRow, "_test");
+		if (testCell) {
+			var testIndex = testCell.cellIndex;
+			var testHeader = titleRow.cells[testIndex];
+			if (testHeader) testHeader.classList.add("cf-test-heading");
+			for (var tr = 0; tr < table.rows.length; tr++) {
+				var testColumnCell = table.rows[tr].cells[testIndex];
+				if (testColumnCell) testColumnCell.classList.add("cf-test-column");
+			}
+		}
+
+		var colgroup = table.querySelector("colgroup.cf-ingress-columns");
+		if (!colgroup) {
+			colgroup = document.createElement("colgroup");
+			colgroup.className = "cf-ingress-columns";
+			table.insertBefore(colgroup, table.firstChild);
+		}
+		while (colgroup.children.length < maxColumns)
+			colgroup.appendChild(document.createElement("col"));
+		while (colgroup.children.length > maxColumns)
+			colgroup.removeChild(colgroup.lastChild);
+
+		var total = 0;
+		Object.keys(weights).forEach(function(idx) { total += weights[idx]; });
+		if (total <= 0) return;
+		for (var i = 0; i < maxColumns; i++) {
+			var col = colgroup.children[i];
+			if (visible[i]) {
+				col.style.display = "table-column";
+				col.style.width = (weights[i] / total * 100).toFixed(3) + "%";
+			} else {
+				col.style.display = "none";
+				col.style.width = "0";
+			}
+		}
 	}
 
 	function buildColumnMenu(firstRow) {
@@ -453,20 +570,6 @@ function cfTestIngress(sec) {
 			menu.appendChild(row);
 		});
 
-		var reset = document.createElement("button");
-		reset.type = "button";
-		reset.className = "btn cbi-button";
-		reset.textContent = "]] .. translate("Reset") .. [[";
-		reset.style.cssText = "margin-top:8px;width:100%;border-top:1px solid #ddd";
-		reset.addEventListener("click", function() {
-			try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
-			try { localStorage.removeItem("cf-ingress-columns-v2"); } catch (e) {}
-			try { localStorage.removeItem("cf-ingress-columns-v3"); } catch (e) {}
-			try { localStorage.removeItem("cf-ingress-columns-v4"); } catch (e) {}
-			location.reload();
-		});
-		menu.appendChild(reset);
-
 		btn.addEventListener("click", function(ev) {
 			ev.stopPropagation();
 			menu.style.display = (menu.style.display === "none" || menu.style.display === "") ? "block" : "none";
@@ -496,6 +599,8 @@ function cfTestIngress(sec) {
 					box.innerHTML = '<span style="color:#27ae60;font-weight:bold" title="' + I18N.cname + '">● ' + I18N.synced + '</span>';
 				else if (st === "pending")
 					box.innerHTML = '<span style="color:#e67e22;font-weight:bold" title="' + I18N.willcreate + '">● ' + I18N.pending + '</span>';
+				else if (st === "disabled")
+					box.innerHTML = '<span style="color:#999">● ' + I18N.disabled + '</span>';
 				else if (st === "unknown")
 					box.innerHTML = '<span style="color:#aaa" title="' + I18N.noconfig + '">● ' + I18N.unknown + '</span>';
 				else
@@ -567,6 +672,13 @@ function cfTestIngress(sec) {
 
 		buildColumnMenu(firstRow);
 		applyColumns(firstRow);
+		var table = firstRow.closest("table");
+		if (table && window.MutationObserver && !table._cfLayoutObserver) {
+			table._cfLayoutObserver = new MutationObserver(function() {
+				scheduleLayoutRefresh();
+			});
+			table._cfLayoutObserver.observe(table, { childList: true, subtree: true });
+		}
 		loadDns();
 	}
 
@@ -575,13 +687,23 @@ function cfTestIngress(sec) {
 		if (firstRow) applyColumns(firstRow);
 	}
 
+	var layoutTimers = [];
+	function scheduleLayoutRefresh() {
+		layoutTimers.forEach(function(timer) { clearTimeout(timer); });
+		layoutTimers = [0, 60, 180, 450].map(function(delay) {
+			return setTimeout(refreshColumns, delay);
+		});
+	}
+
 	if (document.readyState === "loading")
 		document.addEventListener("DOMContentLoaded", setup);
 	else
 		setup();
-	window.addEventListener("pageshow", refreshColumns);
-	window.addEventListener("load", refreshColumns);
-	window.setTimeout(refreshColumns, 0);
+	window.addEventListener("pageshow", scheduleLayoutRefresh);
+	window.addEventListener("load", scheduleLayoutRefresh);
+	window.addEventListener("resize", scheduleLayoutRefresh);
+	window.addEventListener("orientationchange", scheduleLayoutRefresh);
+	window.setTimeout(scheduleLayoutRefresh, 0);
 })();
 </script>
 ]]
@@ -597,7 +719,7 @@ ing.addremove = true
 
 local tunnel_opt = ing:option(ListValue, "tunnel", translate("Tunnel"))
 for _, t in ipairs(tunnels) do
-	tunnel_opt:value(t.section, t.name .. (t.domain ~= "" and (" (" .. t.domain .. ")") or ""))
+	tunnel_opt:value(t.section, t.name ~= "" and t.name or t.section)
 end
 
 -- Heal legacy rows that were saved without a tunnel reference (or with one
@@ -621,7 +743,7 @@ hostname.datatype = "hostname"
 hostname.write = function(self, section, value)
 	if value and value ~= "" and not value:match("%.") then
 		local ts = tunnel_opt:formvalue(section) or uci:get("cloudflared", section, "tunnel")
-		local t = ts and tunnel_by_section[ts]
+		local t = resolve_tunnel(ts)
 		if t and t.domain ~= "" then
 			value = value .. "." .. t.domain
 		end
@@ -911,7 +1033,6 @@ end
 
 local svc_col = ing:option(DummyValue, "_service_summary", translate("Service"))
 svc_col.rawhtml = true
-svc_col.width = "220px"
 svc_col.cfgvalue = function(self, section)
 	local svc = uci:get("cloudflared", section, "service") or ""
 	local scheme, host, port, extra = parse_service(svc)
@@ -928,16 +1049,18 @@ end
 
 local dns_col = ing:option(DummyValue, "_dns_status", translate("DNS"))
 dns_col.rawhtml = true
-dns_col.width = "120px"
 
 function dns_col.cfgvalue(self, section)
 	local host = uci:get("cloudflared", section, "hostname") or ""
 	local ts = uci:get("cloudflared", section, "tunnel") or ""
-	local t = tunnel_by_section[ts]
+	local enabled = uci:get("cloudflared", section, "enabled") or "1"
+	local t = resolve_tunnel(ts)
 	local inner
 
 	if host == "" then
 		inner = "<span style='color:#ccc'>—</span>"
+	elseif enabled == "0" then
+		inner = "<span style='color:#999'>● " .. translate("Inactive") .. "</span>"
 	elseif not t or not dns_ready[t.section] then
 		inner = "<span style='color:#aaa' title='" .. translate("Cannot check: missing config") .. "'>● " .. translate("Unknown") .. "</span>"
 	else
@@ -949,11 +1072,14 @@ end
 
 local test_col = ing:option(DummyValue, "_test", translate("Check"))
 test_col.rawhtml = true
-test_col.width = "240px"
 test_col.cfgvalue = function(self, section)
-	return '<button type="button" class="btn cbi-button" onclick="cfTestIngress(\'' .. section .. '\')">' ..
-		translate("Test") .. '</button> <span id="cf-test-' .. section .. '" style="font-size:90%"></span>'
+	return '<div class="cf-test-cell"><button type="button" class="btn cbi-button cf-test-button" onclick="cfTestIngress(\'' .. section .. '\')">' ..
+		translate("Test") .. '</button><span id="cf-test-' .. section .. '" class="cf-test-result"></span></div>'
 end
+
+local rule_enabled = ing:option(Flag, "enabled", translate("Enable"))
+rule_enabled.default = "1"
+rule_enabled.rmempty = false
 
 
 -- ===== Hooks =====

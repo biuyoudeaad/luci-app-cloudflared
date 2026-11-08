@@ -117,7 +117,8 @@ function M.tunnel_signature(section)
 	local ingress = {}
 	cursor:foreach("cloudflared", "ingress", function(s)
 		if s.tunnel == section then
-			ingress[#ingress + 1] = (s.hostname or "") .. "|" .. (s.service or "")
+			ingress[#ingress + 1] = (s.hostname or "") .. "|" ..
+				(s.service or "") .. "|" .. (s.enabled or "1")
 		end
 	end)
 	table.sort(ingress)
@@ -711,22 +712,49 @@ function M.parse_service(service)
 	return scheme, host, port, rest
 end
 
-function M.test_backend(scheme, host, port, extra, host_header, no_tls)
+function M.test_backend(scheme, host, port, extra, host_header, no_tls, server_name, ca_pool)
 	if scheme == "http" or scheme == "https" then
+		local portnum = tostring(port or ((scheme == "https") and 443 or 80))
 		local hostpart = host
 		if hostpart and hostpart:find(":") then
 			hostpart = "[" .. hostpart .. "]"
 		end
-		local url = scheme .. "://" .. hostpart .. ":" .. tostring(port or ((scheme == "https") and 443 or 80)) .. "/"
+
+		local sni = server_name
+		if not sni or sni == "" then
+			sni = host_header
+		end
+		if not sni or sni == "" then
+			sni = host
+		end
+
+		local connect_host = hostpart
+		local resolve = ""
+		if scheme == "https" and sni and sni ~= "" and sni ~= host and
+		   not sni:find(":") and sni:match("%a") and
+		   host and host ~= "" and not host:find(":") then
+			-- Connect with the proper TLS SNI while still dialling the origin IP.
+			connect_host = sni
+			resolve = " --resolve " .. M.shellquote(sni .. ":" .. portnum .. ":" .. host)
+		end
+
+		local url = scheme .. "://" .. connect_host .. ":" .. portnum .. "/"
 		local hdr = ""
 		if host_header and host_header ~= "" then
 			hdr = " -H " .. M.shellquote("Host: " .. host_header)
 		end
-		local insecure = ""
-		if scheme == "https" and no_tls == "1" then
-			insecure = " -k"
+
+		local tls_opts = ""
+		if scheme == "https" then
+			if no_tls == "1" then
+				tls_opts = " -k"
+			elseif ca_pool and ca_pool ~= "" then
+				tls_opts = " --cacert " .. M.shellquote(ca_pool)
+			end
 		end
-		local out = sys.exec("curl" .. insecure .. " -sS -o /dev/null -w '%{http_code}' --max-time 5" ..
+
+		local out = sys.exec("curl" .. tls_opts .. resolve ..
+			" -sS -o /dev/null -w '%{http_code}' --max-time 5" ..
 			hdr .. " " .. M.shellquote(url) .. " 2>/dev/null")
 		out = (out or ""):gsub("%s+$", "")
 		if out ~= "" and out ~= "000" then
@@ -781,6 +809,34 @@ function M.cached_tunnel_dns(section, token, tunnel_id, domain)
 	return records
 end
 
+function M.resolve_ingress_tunnel(tunnels, ts)
+	if not ts or ts == "" then
+		if #tunnels == 1 then
+			return tunnels[1].section
+		end
+		return ""
+	end
+
+	for _, t in ipairs(tunnels) do
+		if t.section == ts then
+			return ts
+		end
+	end
+
+	-- Tolerate legacy references (display name or tunnel UUID).
+	for _, t in ipairs(tunnels) do
+		if t.name == ts or t.tunnel_id == ts then
+			return t.section
+		end
+	end
+
+	if #tunnels == 1 then
+		return tunnels[1].section
+	end
+
+	return ""
+end
+
 function M.action_ingress_dns()
 	local cursor = uci.cursor()
 	local tunnels = {}
@@ -792,6 +848,7 @@ function M.action_ingress_dns()
 		end
 		tunnels[#tunnels + 1] = {
 			section = sec[".name"],
+			name = sec.name or "",
 			domain = sec.domain or "",
 			tunnel_id = sec.tunnel_id or "",
 			token = token,
@@ -814,10 +871,12 @@ function M.action_ingress_dns()
 	cursor:foreach("cloudflared", "ingress", function(sec)
 		local section = sec[".name"]
 		local host = sec.hostname or ""
-		local ts = sec.tunnel or ""
+		local ts = M.resolve_ingress_tunnel(tunnels, sec.tunnel or "")
 		local st
 		if host == "" then
 			st = "none"
+		elseif sec.enabled == "0" then
+			st = "disabled"
 		elseif not ready[ts] then
 			st = "unknown"
 		elseif records[host] and records[host].section == ts then
@@ -861,6 +920,10 @@ function M.action_test_ingress(p)
 	local hostname = cursor:get("cloudflared", section, "hostname") or ""
 	local tsec = cursor:get("cloudflared", section, "tunnel") or ""
 
+	if cursor:get("cloudflared", section, "enabled") == "0" then
+		return { ok = false, disabled = true, message = "Rule disabled" }
+	end
+
 	if service == "" then
 		return { ok = false, message = "No service configured" }
 	end
@@ -875,8 +938,11 @@ function M.action_test_ingress(p)
 		host_header = hostname
 	end
 	local no_tls = cursor:get("cloudflared", section, "no_tls_verify") or "0"
+	local origin_name = cursor:get("cloudflared", section, "origin_server_name") or ""
+	local ca_pool = cursor:get("cloudflared", section, "origin_ca_pool") or ""
 
-	local backend_ok, backend_msg = M.test_backend(scheme, host, port, extra, host_header, no_tls)
+	local backend_ok, backend_msg = M.test_backend(scheme, host, port, extra,
+		host_header, no_tls, origin_name, ca_pool)
 	local tunnel_running = sys.call("pgrep -f 'cloudflared.*tunnel run' >/dev/null 2>&1") == 0
 	local result = {
 		ok = backend_ok,

@@ -6,7 +6,7 @@ local xml = require "luci.xml"
 local jsonc = require "luci.jsonc"
 
 m = Map("cloudflared",
-	translate("Cloudflared Tunnel"),
+	translate("Cloudflared Overview"),
 	translate("Configure Cloudflare Tunnel"))
 
 m.apply_on_parse = false
@@ -29,9 +29,29 @@ if bin then
 	version = version:match("[0-9]+%.[0-9]+%.[0-9]+") or version:gsub("%s+$", "")
 end
 
-local tunnel_count = 0
-uci:foreach("cloudflared", "tunnel", function()
+local tunnel_count, tunnel_enabled = 0, 0
+uci:foreach("cloudflared", "tunnel", function(s)
 	tunnel_count = tunnel_count + 1
+	if (s.enabled or "1") ~= "0" then
+		tunnel_enabled = tunnel_enabled + 1
+	end
+end)
+
+local site_total, site_running, site_abnormal, site_inactive = 0, 0, 0, 0
+uci:foreach("cloudflared", "ingress", function(s)
+	site_total = site_total + 1
+	local enabled = s.enabled or "1"
+	local host = s.hostname or ""
+	local svc = s.service or ""
+	local ts = s.tunnel or ""
+
+	if enabled == "0" then
+		site_inactive = site_inactive + 1
+	elseif host ~= "" and svc ~= "" and (ts ~= "" or tunnel_count == 1) then
+		site_running = site_running + 1
+	else
+		site_abnormal = site_abnormal + 1
+	end
 end)
 
 local running = sys.call("pgrep -f 'cloudflared.*tunnel run' >/dev/null 2>&1") == 0
@@ -50,28 +70,64 @@ end
 
 local stats_html = [[
 <style>
-.cf-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0 4px}
-@media (max-width:720px){.cf-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-.cf-stat{background:rgba(128,128,128,.1);border:1px solid rgba(128,128,128,.18);border-radius:6px;padding:8px 10px;min-width:0}
-.cf-stat-label{font-size:.78em;color:#888;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cf-stat-value{font-size:1.02em;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cf-overview-title{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.cf-guide-link{flex:0 0 auto;color:#8b929a!important;font-size:12px;font-weight:400;text-decoration:none!important;white-space:nowrap}
+.cf-guide-link:hover{color:#59636e!important;text-decoration:underline!important}
+@media (max-width:520px){.cf-overview-title{align-items:flex-start}.cf-guide-link{font-size:11px}}
+.cf-stat-grid{display:grid!important;width:100%;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0 6px;box-sizing:border-box}
+@media (max-width:900px){.cf-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:520px){.cf-stat-grid{grid-template-columns:minmax(0,1fr)}}
+.cf-stat{background:rgba(128,128,128,.08);border:1px solid rgba(128,128,128,.2);border-left:3px solid rgba(128,128,128,.35);border-radius:6px;padding:9px 12px;min-width:0}
+.cf-stat.ok{border-left-color:#2e7d32}
+.cf-stat.warn{border-left-color:#e67e22}
+.cf-stat.bad{border-left-color:#c62828}
+.cf-stat-label{font-size:.76em;color:#888;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cf-stat-value{font-size:1.08em;font-weight:600;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cf-stat-sub{font-size:.78em;color:#777;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cf-stat-sub .ok{color:#2e7d32;font-weight:600}
+.cf-stat-sub .bad{color:#c62828;font-weight:600}
+.cf-stat-sub .warn{color:#e67e22;font-weight:600}
 </style>
+<script>
+(function() {
+	function addGuideLink() {
+		var title = document.querySelector(".cbi-map h2[name='content']");
+		if (!title || title.querySelector(".cf-guide-link")) return;
+		title.classList.add("cf-overview-title");
+		var link = document.createElement("a");
+		link.className = "cf-guide-link";
+		link.href = "https://blog.chdao.com.cn/archives/luci-app-cloudflared-cao-zuo-zhi-yin";
+		link.target = "_blank";
+		link.rel = "noopener noreferrer";
+		link.textContent = "]] .. translate("操作指引") .. [[";
+		title.appendChild(link);
+	}
+	if (document.readyState === "loading")
+		document.addEventListener("DOMContentLoaded", addGuideLink);
+	else
+		addGuideLink();
+})();
+</script>
 <div class="cf-stat-grid">
-	<div class="cf-stat">
+	<div class="cf-stat ]] .. (running and "ok" or "bad") .. [[">
 		<div class="cf-stat-label">]] .. translate("Connection") .. [[</div>
-		<div class="cf-stat-value" style="color:]] .. (running and "green" or "red") .. [[">]] .. (running and translate("Running") or translate("Stopped")) .. [[</div>
+		<div class="cf-stat-value" style="color:]] .. (running and "#2e7d32" or "#c62828") .. [[">● ]] .. (running and translate("Running") or translate("Stopped")) .. [[</div>
+		<div class="cf-stat-sub">]] .. translate("Enable on boot") .. [[: ]] .. (service_enabled and translate("Enabled") or translate("Inactive")) .. [[</div>
 	</div>
-	<div class="cf-stat">
+	<div class="cf-stat ok">
 		<div class="cf-stat-label">]] .. translate("Tunnels") .. [[</div>
-		<div class="cf-stat-value">]] .. tostring(tunnel_count) .. [[</div>
+		<div class="cf-stat-value" title="]] .. translate("Tunnels") .. [[: ]] .. tostring(tunnel_count) .. [[">]] .. tostring(tunnel_count) .. [[</div>
+		<div class="cf-stat-sub">]] .. translate("Enabled") .. [[ ]] .. tostring(tunnel_enabled) .. [[ · ]] .. translate("Inactive") .. [[ ]] .. tostring(tunnel_count - tunnel_enabled) .. [[</div>
 	</div>
-	<div class="cf-stat">
-		<div class="cf-stat-label">]] .. translate("Version") .. [[</div>
-		<div class="cf-stat-value" title="]] .. xml.pcdata(version ~= "" and version or "—") .. [[">]] .. xml.pcdata(version ~= "" and version or "—") .. [[</div>
+	<div class="cf-stat ]] .. (site_abnormal > 0 and "warn" or "ok") .. [[">
+		<div class="cf-stat-label" title="]] .. translate("Sites") .. [[: ]] .. tostring(site_total) .. [[">]] .. translate("Sites") .. [[</div>
+		<div class="cf-stat-value"><span style="color:#2e7d32">]] .. translate("Running") .. [[ ]] .. tostring(site_running) .. [[</span></div>
+		<div class="cf-stat-sub"><span class="]] .. (site_abnormal > 0 and "bad" or "ok") .. [[">]] .. translate("Abnormal") .. [[ ]] .. tostring(site_abnormal) .. [[</span> · ]] .. translate("Inactive") .. [[ ]] .. tostring(site_inactive) .. [[</div>
 	</div>
-	<div class="cf-stat">
+	<div class="cf-stat ]] .. (bin and "ok" or "bad") .. [[">
 		<div class="cf-stat-label">]] .. translate("Core Status") .. [[</div>
-		<div class="cf-stat-value" style="color:]] .. (bin and "green" or "red") .. [[">]] .. (bin and translate("Installed") or translate("Missing")) .. [[</div>
+		<div class="cf-stat-value" style="color:]] .. (bin and "#2e7d32" or "#c62828") .. [[">● ]] .. (bin and translate("Installed") or translate("Missing")) .. [[</div>
+		<div class="cf-stat-sub">]] .. translate("Version") .. [[ ]] .. xml.pcdata(version ~= "" and version or "—") .. [[</div>
 	</div>
 </div>
 ]]
@@ -131,8 +187,9 @@ top_ui.cfgvalue = function()
 
 	html[#html + 1] = [[
 <style>
-.cf-top-grid{display:flex;flex-wrap:wrap;gap:16px;margin:4px 0 18px}
-.cf-top-col{flex:1 1 320px;min-width:280px;box-sizing:border-box;border:1px solid rgba(128,128,128,.25);border-radius:8px;padding:14px 16px}
+.cf-top-grid{display:grid!important;width:100%;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:4px 0 18px;box-sizing:border-box}
+.cf-top-col{width:100%;min-width:0;box-sizing:border-box;border:1px solid rgba(128,128,128,.25);border-radius:8px;padding:14px 16px}
+@media (max-width:760px){.cf-top-grid{grid-template-columns:minmax(0,1fr)}}
 .cf-top-col h3{margin:0 0 12px;font-size:1.05em}
 .cf-svc-row{display:flex;flex-wrap:wrap;gap:8px}
 .cf-svc-row .btn{margin:0}

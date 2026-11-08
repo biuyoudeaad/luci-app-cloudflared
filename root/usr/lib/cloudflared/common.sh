@@ -267,9 +267,10 @@ cf_ingress_sections() {
 			tunnel="$(uci -q get "cloudflared.$section.tunnel" 2>/dev/null)"
 			if [ "$tunnel" = "$target" ]; then
 				printf '%s\n' "$section"
-			elif [ -z "$tunnel" ] && [ "${count:-0}" -le 1 ]; then
-				# Legacy orphan: older UI versions could save an empty
-				# tunnel reference. With a single tunnel it is unambiguous.
+			elif [ "${count:-0}" -le 1 ]; then
+				# Legacy orphan: older UI versions could save an empty or
+				# stale tunnel reference. With a single tunnel it is
+				# unambiguous.
 				printf '%s\n' "$section"
 			fi
 		done
@@ -317,6 +318,7 @@ cf_gen_config() {
 		printf 'ingress:\n'
 
 		for ingress in $(cf_ingress_sections "$section"); do
+			[ "$(cf_get "$ingress" enabled 1)" = "1" ] || continue
 			host="$(cf_get "$ingress" hostname)"
 			service="$(cf_get "$ingress" service)"
 			[ -n "$host" ] || continue
@@ -425,6 +427,7 @@ cf_domain_rewrite() {
 	}
 
 	for ingress in $(cf_ingress_sections "$section"); do
+		[ "$(cf_get "$ingress" enabled 1)" = "1" ] || continue
 		host="$(cf_get "$ingress" hostname)"
 		[ -n "$host" ] || continue
 
@@ -463,6 +466,7 @@ cf_dns_sync() {
 	}
 
 	for ingress in $(cf_ingress_sections "$section"); do
+		[ "$(cf_get "$ingress" enabled 1)" = "1" ] || continue
 		host="$(cf_get "$ingress" hostname)"
 		[ -n "$host" ] || continue
 

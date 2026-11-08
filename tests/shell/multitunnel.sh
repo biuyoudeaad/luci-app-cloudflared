@@ -107,6 +107,14 @@ mkdir -p "$BASE/tunnels/t1"
 printf 'tunnel: tid1\n' > "$BASE/tunnels/t1/config.yml"
 assert_eq "$(cf_credentials t1)" "$BASE/tunnels/@tunnel[0]/tid1.json"
 
+# Disabled ingress rows are not written to config.yml
+uci -q set cloudflared.r1.enabled=0
+cfg_off="$(cf_gen_config t1)"
+assert_not_contains "$cfg_off" "hostname: a.new.com"
+uci -q set cloudflared.r1.enabled=1
+cfg_on="$(cf_gen_config t1)"
+assert_contains "$cfg_on" "hostname: a.new.com"
+
 # Log size limit parsing
 uci -q set cloudflared.log.log_max_size=2
 uci -q set cloudflared.log.log_max_unit=KB

@@ -2,7 +2,7 @@ local uci = require "luci.model.uci".cursor()
 local common = require "luci.cloudflared.common"
 
 m = Map("cloudflared",
-	translate("Cloudflare Tunnels"),
+	translate("Cloudflared Tunnels"),
 	translate("Each tunnel has its own domain, credentials and config.yml."))
 
 m.apply_on_parse = false
@@ -18,7 +18,9 @@ local jso = jssec:option(DummyValue, "_js")
 jso.rawhtml = true
 jso.cfgvalue = function()
 	return common.js_helpers() .. [[
+<style>.cf-tunnel-script-host{display:none!important}</style>
 <script>
+(function(){var s=document.currentScript;var h=s&&s.closest(".cbi-section");if(h)h.classList.add("cf-tunnel-script-host")})();
 function cfFieldValue(id) {
 	var el = document.getElementById(id);
 	if (!el) return "";

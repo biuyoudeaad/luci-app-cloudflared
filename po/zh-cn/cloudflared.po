@@ -8,6 +8,9 @@ msgstr "Cloudflare 隧道"
 msgid "Cloudflared Tunnel"
 msgstr "Cloudflare 隧道"
 
+msgid "Cloudflared Overview"
+msgstr "Cloudflared 概览"
+
 msgid "Configure Cloudflare Tunnel"
 msgstr "配置 Cloudflare 隧道"
 
@@ -146,6 +149,12 @@ msgstr "尚未配置隧道"
 msgid "Tunnels"
 msgstr "隧道"
 
+msgid "Sites"
+msgstr "站点"
+
+msgid "Abnormal"
+msgstr "异常"
+
 msgid "Binary"
 msgstr "程序"
 
@@ -188,6 +197,9 @@ msgstr "检查状态"
 msgid "Cloudflare Tunnels"
 msgstr "Cloudflare 隧道"
 
+msgid "Cloudflared Tunnels"
+msgstr "Cloudflared 隧道"
+
 msgid "Each tunnel has its own domain, credentials and config.yml."
 msgstr "每个隧道拥有独立的域名、凭据和 config.yml。"
 
@@ -205,6 +217,15 @@ msgstr "名称"
 
 msgid "Enabled"
 msgstr "启用"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "Inactive"
+msgstr "已禁用"
+
+msgid "Rule disabled"
+msgstr "规则已禁用"
 
 msgid "Root domain of this tunnel, e.g. example.com."
 msgstr "该隧道的根域名，例如 example.com。"
