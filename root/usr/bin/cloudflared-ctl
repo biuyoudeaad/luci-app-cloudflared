@@ -34,6 +34,8 @@ Commands:
   core-status
   check
   clear-logs
+  rotate-logs
+  scheduled-clean
   tunnel-sections
   ingress-sections <section>
 USAGE
@@ -659,6 +661,41 @@ cmd_clear_logs() {
 	printf 'OK\n'
 }
 
+cmd_rotate_logs() {
+	local f size limit
+
+	limit="$(cf_log_limit_bytes)"
+	[ "$limit" -gt 0 ] || {
+		printf 'OK\n'
+		return 0
+	}
+
+	for f in "$CF_APP_LOG" "$CF_CORE_LOG"; do
+		[ -f "$f" ] || continue
+		size="$(wc -c < "$f" 2>/dev/null | tr -d ' ')"
+		[ -n "$size" ] && [ "$size" -gt "$limit" ] && : > "$f"
+	done
+
+	printf 'OK\n'
+}
+
+cmd_scheduled_clean() {
+	local f size limit
+
+	limit="$(cf_log_limit_bytes)"
+
+	for f in "$CF_APP_LOG" "$CF_CORE_LOG"; do
+		[ -f "$f" ] || continue
+		size="$(wc -c < "$f" 2>/dev/null | tr -d ' ')"
+		[ -n "$size" ] || continue
+		if [ "$limit" -le 0 ] || [ "$size" -gt "$limit" ]; then
+			: > "$f"
+		fi
+	done
+
+	printf 'OK\n'
+}
+
 cmd_core_latest() {
 	local asset url loc ver
 
@@ -763,6 +800,8 @@ main() {
 		core-install)        cmd_core_install "$@" ;;
 		check)               cmd_check "$@" ;;
 		clear-logs)          cmd_clear_logs "$@" ;;
+		rotate-logs)         cmd_rotate_logs "$@" ;;
+		scheduled-clean)     cmd_scheduled_clean "$@" ;;
 		core-asset)          cmd_core_asset "$@" ;;
 		core-latest)         cmd_core_latest "$@" ;;
 		core-status)         cmd_core_status "$@" ;;

@@ -3,16 +3,38 @@ local jsonc = require "luci.jsonc"
 
 m = Map("cloudflared",
 	translate("Cloudflared Log"),
-	translate("View plugin and core logs, with optional scheduled clearing."))
+	translate("View plugin and core logs, with optional scheduled cleanup."))
 
 m.apply_on_parse = false
 
 if not m.uci:get("cloudflared", "log") then
 	m.uci:set("cloudflared", "log", "log")
-	m.uci:set("cloudflared", "log", "scheduled_clear", "0")
-	m.uci:set("cloudflared", "log", "scheduled_clear_cron", "0 3 * * *")
-	m.uci:set("cloudflared", "log", "clear_at_stop", "0")
+	m.uci:set("cloudflared", "log", "scheduled_clear", "1")
+	m.uci:set("cloudflared", "log", "scheduled_clear_cron", "*/5 * * * *")
+	m.uci:set("cloudflared", "log", "log_max_size", "1")
+	m.uci:set("cloudflared", "log", "log_max_unit", "MB")
+	m.uci:set("cloudflared", "log", "clear_at_stop", "1")
 	m.uci:commit("cloudflared")
+end
+
+-- Migrate the untouched legacy log defaults to the new defaults.
+do
+	local c = m.uci:get_all("cloudflared", "log") or {}
+	local clear = c.scheduled_clear or "0"
+	local cronv = c.scheduled_clear_cron or "0 3 * * *"
+	local size = c.log_max_size or "5"
+	local unit = c.log_max_unit or "MB"
+	local stop = c.clear_at_stop or "0"
+
+	if clear == "0" and cronv == "0 3 * * *" and size == "5" and
+	   unit == "MB" and stop == "0" then
+		m.uci:set("cloudflared", "log", "scheduled_clear", "1")
+		m.uci:set("cloudflared", "log", "scheduled_clear_cron", "*/5 * * * *")
+		m.uci:set("cloudflared", "log", "log_max_size", "1")
+		m.uci:set("cloudflared", "log", "log_max_unit", "MB")
+		m.uci:set("cloudflared", "log", "clear_at_stop", "1")
+		m.uci:commit("cloudflared")
+	end
 end
 
 local i18n_json = jsonc.stringify({
@@ -32,8 +54,8 @@ local function viewer_html(which, with_script)
 .cf-log-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
 .cf-log-toolbar input.cf-log-filter{flex:1 1 240px;min-width:180px}
 .cf-log-toolbar select{min-width:110px}
-.cf-log-view{width:100%;height:62vh;min-height:420px;max-height:75vh;overflow:auto;white-space:pre-wrap;word-break:break-all;background:rgba(0,0,0,.25);color:#ddd;border:1px solid rgba(128,128,128,.25);border-radius:6px;padding:10px;font-family:monospace;font-size:.9em;margin:0}
-.cf-log-info{color:#888;font-size:.85em}
+.cf-log-view{width:100%;height:62vh;min-height:420px;max-height:75vh;overflow:auto;white-space:pre-wrap;word-break:break-all;background:#fff;color:#111;border:1px solid #ccc;border-radius:6px;padding:12px;font-family:monospace;font-size:14px;line-height:1.5;margin:0}
+.cf-log-info{color:#666;font-size:.9em}
 </style>
 ]]
 	end
@@ -150,19 +172,44 @@ s:tab("settings", translate("Log Settings"))
 s:tab("app", translate("Plugin Log"))
 s:tab("core", translate("Core Log"))
 
-local sc = s:taboption("settings", Flag, "scheduled_clear", translate("Scheduled Clear"))
-sc.default = "0"
+local cas = s:taboption("settings", Flag, "clear_at_stop", translate("Clear At Stop"))
+cas.default = "1"
+cas.rmempty = false
+
+local sc = s:taboption("settings", Flag, "scheduled_clear", translate("Scheduled Cleanup"))
+sc.default = "1"
 sc.rmempty = false
 
 local cron = s:taboption("settings", Value, "scheduled_clear_cron", translate("Cron Expression"),
-	translate("Standard five-field cron expression, e.g. 0 3 * * *."))
-cron.default = "0 3 * * *"
+	translate("Standard five-field cron expression, e.g. */5 * * * *."))
+cron.default = "*/5 * * * *"
 cron:depends("scheduled_clear", "1")
 cron.rmempty = true
+cron.validate = function(self, value)
+	if not value or value == "" then
+		return nil
+	end
+	if not value:match("^[%d%*/%,%-]+%s+[%d%*/%,%-]+%s+[%d%*/%,%-]+%s+[%d%*/%,%-]+%s+[%d%*/%,%-]+$") then
+		return nil, translate("Invalid cron expression")
+	end
+	return value
+end
 
-local cas = s:taboption("settings", Flag, "clear_at_stop", translate("Clear At Stop"))
-cas.default = "0"
-cas.rmempty = false
+local maxsize = s:taboption("settings", Value, "log_max_size", translate("Log Size Limit"),
+	translate("Clean a log file when it exceeds this size at the scheduled time. 0 clears it every time."))
+maxsize.default = "1"
+maxsize.datatype = "uinteger"
+maxsize.rmempty = false
+maxsize.placeholder = "1"
+maxsize:depends("scheduled_clear", "1")
+
+local maxunit = s:taboption("settings", ListValue, "log_max_unit", translate("Size Unit"))
+maxunit:value("KB", "KB")
+maxunit:value("MB", "MB")
+maxunit:value("GB", "GB")
+maxunit.default = "MB"
+maxunit.rmempty = false
+maxunit:depends("scheduled_clear", "1")
 
 local app_ui = s:taboption("app", DummyValue, "_app_log")
 app_ui.rawhtml = true

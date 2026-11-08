@@ -125,16 +125,31 @@ function cfTestIngress(sec) {
 		["_protocol", true],
 		["_ip", true],
 		["_port", true],
+		["_service_summary", false],
+		["_dns_status", true],
+		["_test", true],
 		["_path", false],
 		["_status", false],
 		["origin_host_header", false],
 		["no_tls_verify", false],
-		["origin_server_name", false],
-		["_service_summary", false],
-		["_dns_status", true],
-		["_test", true]
+		["origin_server_name", false]
 	];
-	var STORAGE_KEY = "cf-ingress-columns-v4";
+	var columnLabels = {
+		tunnel: "]] .. translate("Tunnel") .. [[",
+		hostname: "]] .. translate("Hostname") .. [[",
+		_protocol: "]] .. translate("Protocol") .. [[",
+		_ip: "]] .. translate("IP / Host") .. [[",
+		_port: "]] .. translate("Port") .. [[",
+		_service_summary: "]] .. translate("Service") .. [[",
+		_dns_status: "]] .. translate("DNS") .. [[",
+		_test: "]] .. translate("Check") .. [[",
+		_path: "]] .. translate("Unix Socket Path") .. [[",
+		_status: "]] .. translate("HTTP Status Code") .. [[",
+		origin_host_header: "]] .. translate("Origin Host Header") .. [[",
+		no_tls_verify: "]] .. translate("Skip Origin TLS Verify") .. [[",
+		origin_server_name: "]] .. translate("Origin TLS Server Name") .. [["
+	};
+	var STORAGE_KEY = "cf-ingress-columns-v5";
 	var I18N = {
 		synced: "]] .. translate("Synced") .. [[",
 		pending: "]] .. translate("Pending") .. [[",
@@ -421,9 +436,9 @@ function cfTestIngress(sec) {
 		columnDefs.forEach(function(def) {
 			var key = def[0], dflt = def[1];
 			var cell = cellForColumn(firstRow, key);
-			if (!cell) return;
-			var th = titleRow && titleRow.cells[cell.cellIndex];
-			var label = th ? th.textContent.replace(/^\s+|\s+$/g, "") : key;
+			var th = cell && titleRow ? titleRow.cells[cell.cellIndex] : null;
+			var label = (th && th.textContent.replace(/^\s+|\s+$/g, "")) ||
+				columnLabels[key] || key;
 
 			var row = document.createElement("label");
 			row.style.cssText = "display:flex;align-items:center;gap:8px;padding:5px 0;font-weight:normal;cursor:pointer";
@@ -447,6 +462,7 @@ function cfTestIngress(sec) {
 			try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
 			try { localStorage.removeItem("cf-ingress-columns-v2"); } catch (e) {}
 			try { localStorage.removeItem("cf-ingress-columns-v3"); } catch (e) {}
+			try { localStorage.removeItem("cf-ingress-columns-v4"); } catch (e) {}
 			location.reload();
 		});
 		menu.appendChild(reset);

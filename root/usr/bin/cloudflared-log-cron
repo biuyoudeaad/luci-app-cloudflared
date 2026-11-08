@@ -1,22 +1,19 @@
 #!/bin/sh
-# Synchronize the scheduled log-clear crontab entry from UCI.
+# Synchronize the scheduled log-cleanup crontab entry from UCI.
 . /usr/lib/cloudflared/common.sh
 
 CRON_FILE="/etc/crontabs/root"
-MARK="#cloudflared-log-clear"
+CLEAR_MARK="#cloudflared-log-clear"
+LEGACY_ROTATE_MARK="#cloudflared-log-rotate"
 
 mkdir -p /etc/crontabs 2>/dev/null
 touch "$CRON_FILE" 2>/dev/null
-sed -i "/$MARK/d" "$CRON_FILE" 2>/dev/null
+sed -i "/$CLEAR_MARK/d" "$CRON_FILE" 2>/dev/null
+# Remove the old 5-minute rotation entry installed by earlier releases.
+sed -i "/$LEGACY_ROTATE_MARK/d" "$CRON_FILE" 2>/dev/null
 
-for f in "$CF_APP_LOG" "$CF_CORE_LOG"; do
-	[ -f "$f" ] || continue
-	size="$(wc -c < "$f" 2>/dev/null | tr -d ' ')"
-	[ -n "$size" ] && [ "$size" -gt 5242880 ] && : > "$f"
-done
-
-enabled="$(cf_get log scheduled_clear 0)"
-expr="$(cf_get log scheduled_clear_cron '')"
+enabled="$(cf_get log scheduled_clear 1)"
+expr="$(cf_get log scheduled_clear_cron '*/5 * * * *')"
 
 lines="$(printf '%s' "$expr" | wc -l | tr -d ' ')"
 if [ "$lines" -gt 0 ]; then
@@ -32,7 +29,7 @@ if [ -n "$expr" ]; then
 fi
 
 if [ "$enabled" = "1" ] && [ -n "$expr" ]; then
-	printf '%s /usr/bin/cloudflared-ctl clear-logs %s\n' "$expr" "$MARK" >> "$CRON_FILE"
+	printf '%s /usr/bin/cloudflared-ctl scheduled-clean %s\n' "$expr" "$CLEAR_MARK" >> "$CRON_FILE"
 fi
 
 [ -x /etc/init.d/cron ] && /etc/init.d/cron restart >/dev/null 2>&1

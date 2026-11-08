@@ -98,6 +98,9 @@ msgstr "端口"
 msgid "DNS"
 msgstr "DNS 状态"
 
+msgid "Service"
+msgstr "服务"
+
 msgid "Cannot check: missing config"
 msgstr "无法检查：缺少配置"
 
@@ -374,6 +377,9 @@ msgstr "Cloudflared 日志"
 msgid "View plugin and core logs, with optional scheduled clearing."
 msgstr "查看插件日志和 Cloudflared 核心日志，可配置定时清理。"
 
+msgid "View plugin and core logs, with optional scheduled cleanup."
+msgstr "查看插件日志和 Cloudflared 核心日志，可配置定时清理。"
+
 msgid "Log Settings"
 msgstr "日志设置"
 
@@ -383,14 +389,32 @@ msgstr "插件日志"
 msgid "Core Log"
 msgstr "核心日志"
 
-msgid "Scheduled Clear"
+msgid "Scheduled Cleanup"
 msgstr "定时清理"
 
 msgid "Cron Expression"
 msgstr "Cron 表达式"
 
+msgid "Invalid cron expression"
+msgstr "Cron 表达式无效"
+
+msgid "Log Size Limit"
+msgstr "日志大小上限"
+
+msgid "Truncate a log file when it exceeds this size. 0 disables the limit."
+msgstr "日志超过该大小时自动清空。填 0 表示不限制。"
+
+msgid "Clean a log file when it exceeds this size at the scheduled time. 0 clears it every time."
+msgstr "到达定时清理时间时，日志超过该大小才清空；填 0 表示每次都直接清空。"
+
+msgid "Size Unit"
+msgstr "大小单位"
+
 msgid "Standard five-field cron expression, e.g. 0 3 * * *."
 msgstr "标准五段 Cron 表达式，例如 0 3 * * *。"
+
+msgid "Standard five-field cron expression, e.g. */5 * * * *."
+msgstr "标准五段 Cron 表达式，例如 */5 * * * *。"
 
 msgid "Clear At Stop"
 msgstr "停止时清空"

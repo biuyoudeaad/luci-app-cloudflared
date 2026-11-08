@@ -51,7 +51,7 @@ stop_service() {
 	local clear
 
 	cf_log "Stopping cloudflared service"
-	clear="$(cf_get log clear_at_stop 0)"
+	clear="$(cf_get log clear_at_stop 1)"
 	if [ "$clear" = "1" ]; then
 		: > "$CF_APP_LOG" 2>/dev/null
 		: > "$CF_CORE_LOG" 2>/dev/null

@@ -11,11 +11,32 @@ mkdir -p /etc/luci-uploads /tmp/cloudflared /var/log/cloudflared 2>/dev/null || 
 
 if ! uci -q get cloudflared.log >/dev/null 2>&1; then
 	uci -q set cloudflared.log=log
-	uci -q set cloudflared.log.scheduled_clear=0
-	uci -q set cloudflared.log.scheduled_clear_cron='0 3 * * *'
-	uci -q set cloudflared.log.clear_at_stop=0
+	uci -q set cloudflared.log.scheduled_clear=1
+	uci -q set cloudflared.log.scheduled_clear_cron='*/5 * * * *'
+	uci -q set cloudflared.log.log_max_size=1
+	uci -q set cloudflared.log.log_max_unit=MB
+	uci -q set cloudflared.log.clear_at_stop=1
 	uci -q commit cloudflared
 fi
+
+# Migrate untouched legacy log defaults to the new defaults.
+if [ "$(uci -q get cloudflared.log.scheduled_clear 2>/dev/null || echo 0)" = "0" ] && \
+   [ "$(uci -q get cloudflared.log.scheduled_clear_cron 2>/dev/null || echo '0 3 * * *')" = "0 3 * * *" ] && \
+   [ "$(uci -q get cloudflared.log.log_max_size 2>/dev/null || echo 5)" = "5" ] && \
+   [ "$(uci -q get cloudflared.log.log_max_unit 2>/dev/null || echo MB)" = "MB" ] && \
+   [ "$(uci -q get cloudflared.log.clear_at_stop 2>/dev/null || echo 0)" = "0" ]; then
+	uci -q set cloudflared.log.scheduled_clear=1
+	uci -q set cloudflared.log.scheduled_clear_cron='*/5 * * * *'
+	uci -q set cloudflared.log.log_max_size=1
+	uci -q set cloudflared.log.log_max_unit=MB
+	uci -q set cloudflared.log.clear_at_stop=1
+fi
+
+[ -n "$(uci -q get cloudflared.log.log_max_size 2>/dev/null)" ] || \
+	uci -q set cloudflared.log.log_max_size=1
+[ -n "$(uci -q get cloudflared.log.log_max_unit 2>/dev/null)" ] || \
+	uci -q set cloudflared.log.log_max_unit=MB
+uci -q commit cloudflared
 
 VERSION="$(uci -q get cloudflared.main.config_version 2>/dev/null)"
 TUNNELS="$(uci -q -X show cloudflared 2>/dev/null | sed -n 's/^cloudflared\.\([^.=]*\)=tunnel$/\1/p')"

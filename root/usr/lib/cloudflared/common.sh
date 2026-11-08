@@ -14,13 +14,37 @@ CF_DEFAULT_DOWNLOAD="https://github.com/cloudflare/cloudflared/releases/latest/d
 
 cf_log() {
 	mkdir -p "$CF_LOG_DIR" 2>/dev/null
-	if [ -f "$CF_APP_LOG" ]; then
-		local size
-		size="$(wc -c < "$CF_APP_LOG" 2>/dev/null | tr -d ' ')"
-		[ -n "$size" ] && [ "$size" -gt 2097152 ] && : > "$CF_APP_LOG"
-	fi
 	printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" 2>/dev/null >> "$CF_APP_LOG"
 	logger -t cloudflared "$*" 2>/dev/null || true
+}
+
+cf_log_limit_bytes() {
+	local size unit mul
+
+	if [ -n "${CF_LOG_LIMIT_CACHE:-}" ]; then
+		printf '%s' "$CF_LOG_LIMIT_CACHE"
+		return 0
+	fi
+
+	size="$(cf_get log log_max_size 1)"
+	case "$size" in
+		''|*[!0-9]*) size=1 ;;
+	esac
+
+	unit="$(cf_get log log_max_unit MB)"
+	case "$unit" in
+		KB) mul=1024 ;;
+		GB) mul=1073741824 ;;
+		*)  mul=1048576 ;;
+	esac
+
+	if [ "$size" -gt 0 ]; then
+		CF_LOG_LIMIT_CACHE=$((size * mul))
+	else
+		CF_LOG_LIMIT_CACHE=0
+	fi
+
+	printf '%s' "$CF_LOG_LIMIT_CACHE"
 }
 
 cf_info() {

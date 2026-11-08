@@ -107,4 +107,14 @@ mkdir -p "$BASE/tunnels/t1"
 printf 'tunnel: tid1\n' > "$BASE/tunnels/t1/config.yml"
 assert_eq "$(cf_credentials t1)" "$BASE/tunnels/@tunnel[0]/tid1.json"
 
+# Log size limit parsing
+uci -q set cloudflared.log.log_max_size=2
+uci -q set cloudflared.log.log_max_unit=KB
+assert_eq "$(cf_log_limit_bytes)" "2048"
+uci -q set cloudflared.log.log_max_size=0
+assert_eq "$(cf_log_limit_bytes)" "0"
+uci -q set cloudflared.log.log_max_size=1
+uci -q set cloudflared.log.log_max_unit=GB
+assert_eq "$(cf_log_limit_bytes)" "1073741824"
+
 printf 'shell multi-tunnel same-zone test passed\n'
