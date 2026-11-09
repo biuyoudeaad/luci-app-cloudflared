@@ -1,0 +1,41 @@
+{
+	"admin/services/cloudflared": {
+		"title": "Cloudflared",
+		"order": 90,
+		"action": {
+			"type": "firstchild"
+		}
+	},
+	"admin/services/cloudflared/overview": {
+		"title": "Overview",
+		"order": 1,
+		"action": {
+			"type": "view",
+			"path": "cloudflared/overview"
+		}
+	},
+	"admin/services/cloudflared/tunnels": {
+		"title": "Tunnels",
+		"order": 2,
+		"action": {
+			"type": "view",
+			"path": "cloudflared/tunnels"
+		}
+	},
+	"admin/services/cloudflared/ingress": {
+		"title": "Ingress",
+		"order": 3,
+		"action": {
+			"type": "view",
+			"path": "cloudflared/ingress"
+		}
+	},
+	"admin/services/cloudflared/log": {
+		"title": "Log",
+		"order": 4,
+		"action": {
+			"type": "view",
+			"path": "cloudflared/log"
+		}
+	}
+}

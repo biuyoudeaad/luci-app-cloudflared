@@ -164,6 +164,7 @@ end
 function M.regen_sections(sections)
 	local ok = true
 	local changed = false
+	local changed_sections = {}
 
 	for _, section in ipairs(sections) do
 		local out = M.run("get-config-path " .. M.shellquote(section))
@@ -185,10 +186,11 @@ function M.regen_sections(sections)
 		end
 		if after ~= before then
 			changed = true
+			changed_sections[#changed_sections + 1] = section
 		end
 	end
 
-	return ok, changed
+	return ok, changed, changed_sections
 end
 
 function M.tunnel_domain(section)
@@ -492,11 +494,7 @@ function M.action_core_check()
 
 	local status = M.parse_kv((M.run("core-status")))
 	local current = status.current_version or ""
-	local latest = ""
-	local out, code = M.run("core-latest")
-	if code == 0 then
-		latest = (out:match("latest=([^\n]+)") or ""):gsub("^v", "")
-	end
+	local latest = M.latest_version(false)
 
 	return {
 		ok = true,
@@ -567,6 +565,16 @@ function M.action_core_upload(path)
 end
 
 function M.action_core_install(p)
+	local force = (p.force == "1" or p.force == "true")
+
+	if not force then
+		local check = M.action_core_check()
+		if check.installed and check.current ~= "" and check.latest ~= "" and
+		   check.current == check.latest then
+			return { ok = false, message = "Already the latest version" }
+		end
+	end
+
 	fs.mkdirr(M.STATE_DIR)
 	local status = M.STATE_DIR .. "/core-install.status"
 	fs.writefile(status, "state=starting\nversion=\ntarget=\nmessage=Starting download\n")
@@ -674,6 +682,18 @@ function M.action_upload(kind, section, path)
 		return { ok = false, message = "Uploaded file not found" }
 	end
 
+	local content = fs.readfile(path) or ""
+	if kind == "cert" then
+		if not content:match("BEGIN CERTIFICATE") then
+			return { ok = false, message = "Not a PEM certificate" }
+		end
+	else
+		local creds = jsonc.parse(content)
+		if not creds or not creds.TunnelID or not creds.TunnelSecret or not creds.AccountTag then
+			return { ok = false, message = "Invalid tunnel credentials JSON" }
+		end
+	end
+
 	local command = (kind == "cert") and "install-cert" or "install-credentials"
 	local out, code = M.run(string.format("%s %s %s",
 		command, M.shellquote(section), M.shellquote(path)))
@@ -759,9 +779,9 @@ function M.test_backend(scheme, host, port, extra, host_header, no_tls, server_n
 			hdr .. " " .. M.shellquote(url) .. " 2>/dev/null")
 		out = (out or ""):gsub("%s+$", "")
 		if out ~= "" and out ~= "000" then
-			return true, "HTTP " .. out
+			return true, "HTTP " .. out, tonumber(out)
 		end
-		return false, "HTTP connection failed"
+		return false, "HTTP connection failed", nil
 	elseif scheme == "unix" then
 		local ok, err = pcall(function()
 			local nixio = require "nixio"
@@ -953,15 +973,14 @@ function M.action_site_stats()
 	for _, tunnel in ipairs(tunnels) do
 		by_section[tunnel.section] = tunnel
 	end
-	local service = jsonc.parse(sys.exec("ubus call service list '{\"name\":\"cloudflared\"}' 2>/dev/null") or "") or {}
-	local instances = service.cloudflared and service.cloudflared.instances or {}
 	local dns = M.action_ingress_dns().status or {}
+	local instances = M.ubus_instances()
 	local counts = { total = 0, running = 0, pending = 0, abnormal = 0, disabled = 0 }
 	cursor:foreach("cloudflared", "ingress", function(rule)
 		local section = M.resolve_ingress_tunnel(tunnels, rule.tunnel or "")
 		local instance = instances["tunnel_" .. section]
 		local state = M.site_state(rule, by_section[section], dns[rule[".name"]],
-			instance and instance.running == true)
+			instance ~= nil and instance.running == true)
 		counts[state] = counts[state] + 1
 		counts.total = counts.total + 1
 	end)
@@ -996,14 +1015,19 @@ function M.action_test_ingress(p)
 	local origin_name = cursor:get("cloudflared", section, "origin_server_name") or ""
 	local ca_pool = cursor:get("cloudflared", section, "origin_ca_pool") or ""
 
-	local backend_ok, backend_msg = M.test_backend(scheme, host, port, extra,
+	local backend_ok, backend_msg, backend_code = M.test_backend(scheme, host, port, extra,
 		host_header, no_tls, origin_name, ca_pool)
-	local tunnel_running = sys.call("pgrep -f 'cloudflared.*tunnel run' >/dev/null 2>&1") == 0
+	local tunnel_section = M.resolve_ingress_tunnel(M.list_tunnels(), tsec)
+	local tunnel_running = M.tunnel_running(tunnel_section)
+	local backend_healthy = backend_ok and
+		(backend_code == nil or (backend_code >= 200 and backend_code < 400))
 	local result = {
-		ok = backend_ok,
+		ok = backend_healthy,
 		service = service,
 		scheme = scheme,
 		backend = backend_msg,
+		backend_code = backend_code,
+		level = backend_healthy and "ok" or (backend_ok and "warn" or "error"),
 		tunnel_running = tunnel_running,
 	}
 
@@ -1022,14 +1046,30 @@ function M.action_test_ingress(p)
 	end
 
 	if (scheme == "http" or scheme == "https") and hostname ~= "" then
-		local out = sys.exec("curl -k -sS -o /dev/null -w '%{http_code}' --max-time 8 " ..
+		local out = sys.exec("curl -4 --noproxy '*' -k -sS -o /dev/null -w '%{http_code}' --max-time 8 " ..
 			M.shellquote("https://" .. hostname .. "/") .. " 2>/dev/null")
 		out = (out or ""):gsub("%s+$", "")
-		result.public_status = (out ~= "" and out ~= "000") and ("HTTP " .. out) or "unreachable"
+		local code = tonumber(out)
+
+		if code and code >= 200 and code < 400 then
+			result.public_status = "HTTP " .. out
+			result.public_level = "ok"
+		elseif code and code >= 400 and code < 500 then
+			result.public_status = "HTTP " .. out
+			result.public_level = "warn"
+		elseif code and code >= 500 then
+			result.public_status = "HTTP " .. out
+			result.public_level = "error"
+		else
+			local resolved = sys.call("nslookup " .. M.shellquote(hostname) ..
+				" >/dev/null 2>&1") == 0
+			result.public_status = resolved and "unreachable" or "DNS resolution failed"
+			result.public_level = "error"
+		end
 	end
 
 	result.message = backend_msg
-	result.ok = backend_ok and tunnel_running and (result.dns_ok ~= false)
+	result.ok = backend_healthy and tunnel_running and (result.dns_ok ~= false)
 	return result
 end
 
@@ -1205,6 +1245,178 @@ window.cfUpload = window.cfUpload || function(action, section, file) {
 };
 </script>
 ]]
+end
+
+
+function M.ubus_instances()
+	local out = sys.exec("ubus call service list '{\"name\":\"cloudflared\"}' 2>/dev/null") or ""
+	local parsed = jsonc.parse(out) or {}
+	local service = parsed.cloudflared or {}
+	return service.instances or {}
+end
+
+function M.tunnel_running(section)
+	if not section or section == "" then
+		return false
+	end
+	local inst = M.ubus_instances()["tunnel_" .. section]
+	return inst ~= nil and inst.running == true
+end
+
+function M.latest_version(force)
+	local path = M.STATE_DIR .. "/core-latest.cache"
+	local mtime = fs.stat(path, "mtime")
+
+	if not force and mtime and (os.time() - mtime) < 300 then
+		local cached = (fs.readfile(path) or ""):gsub("%s+$", "")
+		if cached ~= "" then
+			return cached
+		end
+	end
+
+	local out, code = M.run("core-latest")
+	local latest = ""
+	if code == 0 then
+		latest = (out:match("latest=([^\n]+)") or ""):gsub("^v", ""):gsub("%s+$", "")
+	end
+
+	if latest ~= "" then
+		fs.mkdirr(M.STATE_DIR)
+		fs.writefile(path, latest .. "\n")
+	end
+
+	return latest
+end
+
+function M.action_core_cancel()
+	local pid = (fs.readfile(M.STATE_DIR .. "/core-install.pid") or ""):match("(%d+)")
+	if pid then
+		sys.call("kill " .. pid .. " >/dev/null 2>&1")
+	end
+
+	fs.mkdirr(M.STATE_DIR)
+	fs.writefile(M.STATE_DIR .. "/core-install.status",
+		"state=failed\nmessage=Cancelled\n")
+
+	return { ok = true, message = "Install cancelled" }
+end
+
+function M.action_overview()
+	local cursor = uci.cursor()
+	local tunnels, tunnels_enabled = 0, 0
+	cursor:foreach("cloudflared", "tunnel", function(sec)
+		tunnels = tunnels + 1
+		if (sec.enabled or "1") ~= "0" then
+			tunnels_enabled = tunnels_enabled + 1
+		end
+	end)
+
+	local bin = M.find_binary()
+	local version = ""
+	if bin then
+		version = M.run("version") or ""
+		version = version:match("[0-9]+%.[0-9]+%.[0-9]+") or ""
+	end
+
+	local arch = (sys.exec("uname -m") or ""):gsub("%s+$", "")
+	local asset = M.core_asset() or {}
+	return {
+		ok = true,
+		asset_url = asset.url or "",
+		asset_name = asset.asset or "",
+		running = sys.call("pgrep -f 'cloudflared.*tunnel run' >/dev/null 2>&1") == 0,
+		service_enabled = fs.access("/etc/rc.d/S99cloudflared") and true or false,
+		tunnels = tunnels,
+		tunnels_enabled = tunnels_enabled,
+		binary = bin or "",
+		version = version,
+		arch = arch,
+		base = cursor:get("cloudflared", "main", "base_path") or "/opt/cloudflare",
+	}
+end
+
+function M.action_apply_config()
+	local cursor = uci.cursor()
+	cursor:commit("cloudflared")
+	cursor = uci.cursor()
+	local sections = M.tunnel_sections()
+	local ok, changed, changed_sections = M.regen_sections(sections)
+
+	if changed then
+		local preflight = M.parse_kv(M.run("check"))
+		if preflight.ok ~= "1" then
+			return {
+				ok = false,
+				message = preflight.message or "Configuration preflight check failed",
+			}
+		end
+	end
+
+	for _, section in ipairs(changed_sections or {}) do
+		if (cursor:get("cloudflared", section, "enabled") or "1") ~= "0" then
+			M.action_dns_sync({ section = section })
+			M.delete_orphan_dns(section)
+		end
+	end
+
+	if changed then
+		M.restart_service()
+	end
+
+	return { ok = true, restarted = changed and true or false }
+end
+
+function M.action_apply_tunnels()
+	local cursor = uci.cursor()
+	cursor:commit("cloudflared")
+	cursor = uci.cursor()
+	local sections = {}
+
+	cursor:foreach("cloudflared", "tunnel", function(sec)
+		local section = sec[".name"]
+		sections[#sections + 1] = section
+
+		local domain = sec.domain or ""
+		local applied = sec.applied_domain or domain
+		if domain ~= "" and domain ~= applied then
+			M.action_domain_switch({
+				section = section,
+				new_domain = domain,
+				restart = "0",
+			})
+		end
+	end)
+
+	local ok, changed = M.regen_sections(sections)
+	local need_restart = changed
+	local instances = M.ubus_instances()
+	local known = {}
+
+	for _, section in ipairs(sections) do
+		known["tunnel_" .. section] = true
+		if (cursor:get("cloudflared", section, "enabled") or "1") ~= "0" and
+		   not instances["tunnel_" .. section] then
+			need_restart = true
+		end
+	end
+
+	for name in pairs(instances) do
+		if name:match("^tunnel_") and not known[name] then
+			need_restart = true
+		end
+	end
+
+	if need_restart then
+		M.restart_service()
+	end
+
+	return { ok = true, restarted = need_restart }
+end
+
+function M.action_apply_log()
+	uci.cursor():commit("cloudflared")
+	M.update_log_cron()
+	return { ok = true }
 end
 
 return M

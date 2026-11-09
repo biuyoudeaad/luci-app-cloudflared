@@ -39,4 +39,14 @@ else
 	echo "lua not found, skipping Lua tests"
 fi
 
+if command -v node >/dev/null 2>&1; then
+	echo "== js: syntax and service parser =="
+	for f in "$ROOT"/htdocs/luci-static/resources/cloudflared/*.js "$ROOT"/htdocs/luci-static/resources/view/cloudflared/*.js; do
+		node --check "$f"
+	done
+	node "$TESTDIR/js/service.test.js"
+else
+	echo "node not found, skipping JS tests"
+fi
+
 echo "ALL TESTS PASSED"

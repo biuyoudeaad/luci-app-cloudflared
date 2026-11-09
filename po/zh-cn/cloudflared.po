@@ -646,3 +646,144 @@ msgstr "为 SSH 源站启用堡垒模式。"
 
 msgid "Confirm Protocol Change"
 msgstr "确认切换协议"
+
+msgid "Authorize Tunnel"
+msgstr "授权隧道"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Changes applied."
+msgstr "更改已应用。"
+
+msgid "Changing the protocol updates the related parameter fields. Continue?"
+msgstr "切换协议会更新相关参数项，是否继续？"
+
+msgid "Check authorization"
+msgstr "检查授权状态"
+
+msgid "Cloudflared log settings and viewers."
+msgstr "Cloudflared 日志设置与查看。"
+
+msgid "Continue"
+msgstr "继续"
+
+msgid "Create a Cloudflare tunnel for this entry?"
+msgstr "为当前条目创建 Cloudflare 隧道？"
+
+msgid "DNS sync completed."
+msgstr "DNS 同步完成。"
+
+msgid "Done"
+msgstr "完成"
+
+msgid "Leave empty to auto-detect &lt;tunnel_id&gt;.json in the data directory."
+msgstr "留空则自动检测数据目录中的 &lt;tunnel_id&gt;.json。"
+
+msgid "Leave empty to use &lt;base_path&gt;/cert.pem."
+msgstr "留空则使用 &lt;base_path&gt;/cert.pem。"
+
+msgid "Leave empty to use &lt;base_path&gt;/tunnels/&lt;section&gt;."
+msgstr "留空则使用 &lt;base_path&gt;/tunnels/&lt;section&gt;。"
+
+msgid "Leave empty to use the default cert.pem."
+msgstr "留空则使用默认 cert.pem。"
+
+msgid "Open this URL to authorize the tunnel:"
+msgstr "打开以下地址完成隧道授权："
+
+msgid "Optional. Host header sent to the origin."
+msgstr "可选。发送给源站的 Host 头。"
+
+msgid "Request failed"
+msgstr "请求失败"
+
+msgid "Service operation completed."
+msgstr "服务操作已完成。"
+
+msgid "Site counts use saved ingress rules. Running means valid configuration, a running tunnel process and a synced CNAME; origin reachability is not tested."
+msgstr "按已保存的入站规则统计。运行中：配置有效、所属隧道进程运行且 CNAME 已同步，未检测源站可达性。"
+
+msgid "Waiting for authorization..."
+msgstr "等待授权..."
+
+msgid "Dismiss"
+msgstr "关闭"
+
+msgid "Latest version"
+msgstr "远程最新版本"
+
+msgid "No"
+msgstr "否"
+
+msgid "Not installed"
+msgstr "未安装"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Unable to determine the latest version"
+msgstr "无法获取远程最新版本"
+
+msgid "Up to date"
+msgstr "已是最新"
+
+msgid "Update available"
+msgstr "有新版本可更新"
+
+msgid "Yes"
+msgstr "是"
+
+msgid "Confirm"
+msgstr "确认"
+
+msgid "Delete this tunnel?"
+msgstr "确定删除这个隧道？"
+
+msgid "If the browser cannot reach this router, download cert.pem from Cloudflare and upload it instead."
+msgstr "如果浏览器无法访问本路由器，请从 Cloudflare 下载 cert.pem 后在此上传。"
+
+msgid "Install cancelled"
+msgstr "安装已取消"
+
+msgid "Local version is newer than the remote version, no update needed."
+msgstr "本地版本高于远程版本，无需更新。"
+
+msgid "Pause"
+msgstr "暂停"
+
+msgid "Resume"
+msgstr "继续"
+
+msgid "Save only stores changes; Save & Apply rebuilds config and restarts the service."
+msgstr "“保存”只写入配置，“保存并应用”才会重建配置并重启服务。"
+
+msgid "%s rows"
+msgstr "共 %s 条"
+
+msgid "Filter by hostname"
+msgstr "按主机名筛选"
+
+msgid "Filter by tunnel"
+msgstr "按隧道名筛选"
+
+msgid "First page"
+msgstr "第一页"
+
+msgid "Last page"
+msgstr "最后一页"
+
+msgid "Next page"
+msgstr "下一页"
+
+msgid "Page %s / %s"
+msgstr "第 %s / %s 页"
+
+msgid "Previous page"
+msgstr "上一页"
+
+msgid "Rows per page"
+msgstr "每页条数"
+
+msgid "All"
+msgstr "全部"
