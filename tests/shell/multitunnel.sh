@@ -115,6 +115,25 @@ uci -q set cloudflared.r1.enabled=1
 cfg_on="$(cf_gen_config t1)"
 assert_contains "$cfg_on" "hostname: a.new.com"
 
+# New persistent layout: data under data_path, per-tunnel cert target.
+DATA="$TMP/data"
+mkdir -p "$DATA"
+uci -q set cloudflared.main.data_path="$DATA"
+uci -q set cloudflared.main.base_path=
+uci -q set cloudflared.main.cert_path=
+uci -q set cloudflared.t1.data_dir=
+uci -q set cloudflared.t1.cert_path=
+assert_eq "$(cf_data_path)" "$DATA"
+assert_eq "$(cf_tunnel_dir t1)" "$DATA/tunnels/t1"
+assert_eq "$(cf_tunnel_cert_target t1)" "$DATA/tunnels/t1/cert.pem"
+assert_eq "$(cf_cert_path t1)" "$DATA/cert.pem"
+
+# Config rotation backups stay outside the persistent data directory.
+uci -q set cloudflared.t1.credentials_file="$BASE/t1/tid1.json"
+cf_gen_config t1 >/dev/null
+cf_gen_config t1 >/dev/null
+[ -f "$CF_BACKUP_DIR/t1/config.yml.bak1" ] || fail "expected config backup in $CF_BACKUP_DIR/t1"
+
 # Log size limit parsing
 uci -q set cloudflared.log.log_max_size=2
 uci -q set cloudflared.log.log_max_unit=KB

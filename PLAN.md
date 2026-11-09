@@ -1543,3 +1543,74 @@ root/usr/lib/lua/luci/model/cbi/cloudflared/main.lua   # 拆分为 overview/tunn
 - [x] 行内同步 DNS 使用 `ui.createHandlerFn` 获得同样的默认动画
 - [x] 移除重复的加载状态代码
 - [ ] 69.5 设备实测默认动画与按钮禁用
+
+---
+
+## 70. 长期路径规范与按隧道证书（r95）
+
+### 目录规范
+
+- [x] 核心程序固定为 `/opt/cloudflared/bin/cloudflared`
+- [x] 旧核心保留为 `/opt/cloudflared/bin/cloudflared.old`
+- [x] 持久数据根目录改为 `/etc/cloudflared`
+- [x] 隧道数据目录为 `/etc/cloudflared/tunnels/<section>`
+- [x] 配置与证书轮转备份改为 `/opt/cloudflared/backups/<section>`
+- [x] 新增 `/lib/upgrade/keep.d/luci-app-cloudflared`，自动备份 `/etc/cloudflared`
+- [x] 运行状态继续使用 `/tmp/cloudflared`
+- [x] 日志继续使用 `/var/log/cloudflared`
+
+### 后端
+
+- [x] `common.sh` 新增 `cf_data_path()`、`cf_core_dir()`、`cf_backup_dir()`
+- [x] 新增 `cf_tunnel_cert_target()`，授权/上传证书默认写入隧道目录
+- [x] `cf_find_binary()` 优先新核心目录，兼容旧 base 与 `/usr/bin`
+- [x] `cf_config_path()`、`cf_credentials()` 改用数据目录并保留旧路径回退
+- [x] `cf_gen_config()` 的 `config.yml.bak1/2` 写入备份目录
+- [x] `cloudflared-ctl core-install` 默认安装到新核心目录
+- [x] `login-start/login-status` 使用按隧道证书目标并备份到备份目录
+- [x] `install-cert` 写入按隧道证书目标
+- [x] `cloudflared-hotupdate --reauth` 使用按隧道证书目标
+- [x] Lua 侧同步 `data_path`、`core_dir`、`core_target`、`resolve_cert`
+- [x] UCI 默认配置新增 `data_path` 与全局 `cert_path`
+- [x] `99-cloudflared` 创建新目录并设置权限
+
+### 界面
+
+- [x] 概览页“基础路径”改为“数据目录”，默认提示 `/etc/cloudflared`
+- [x] 核心路径提示改为 `/opt/cloudflared/bin/cloudflared`
+- [x] 全局证书说明改为账号级证书，并说明新隧道独立证书
+- [x] 隧道页数据目录提示改为 `/etc/cloudflared/tunnels/<section>`
+- [x] 隧道页证书提示说明按隧道写入及跨账号要求
+
+### 测试
+
+- [x] shell 测试覆盖 `data_path`、`cf_tunnel_dir`、`cf_tunnel_cert_target`
+- [x] shell 测试覆盖配置备份写入 `/opt/cloudflared/backups`
+- [x] Lua 测试覆盖 `data_path`、`core_target`、证书回退
+- [x] 完整测试通过
+- [ ] 70.9 设备实测新目录、授权写入独立证书、sysupgrade 保留数据
+
+### 旧数据手动迁移（不自动执行）
+
+```sh
+mkdir -p /etc/cloudflared/tunnels
+cp -a /opt/cloudflare/cert.pem /etc/cloudflared/cert.pem
+cp -a /opt/cloudflare/tunnels/. /etc/cloudflared/tunnels/
+uci set cloudflared.main.data_path='/etc/cloudflared'
+uci set cloudflared.main.cert_path='/etc/cloudflared/cert.pem'
+uci commit cloudflared
+chmod 700 /etc/cloudflared /etc/cloudflared/tunnels
+find /etc/cloudflared -name '*.json' -exec chmod 600 {} \;
+find /etc/cloudflared -name 'cert.pem' -exec chmod 600 {} \;
+```
+
+迁移后需要逐条确认隧道的 `data_dir`、`cert_path`、`credentials_file` 没有继续指向旧路径。
+
+---
+
+## 71. 概览页标题回到顶部（r96）
+
+- [x] 表单 Map 不再渲染内置标题
+- [x] 概览页单独渲染“Cloudflared 概览”和说明文字
+- [x] 标题固定在状态卡片、服务控制和设置表单之前
+- [ ] 71.4 设备实测概览页标题位置

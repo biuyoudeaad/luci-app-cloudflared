@@ -9,7 +9,11 @@ CF_STATE_DIR="${CF_STATE_DIR:-/tmp/cloudflared}"
 CF_LOG_DIR="/var/log/cloudflared"
 CF_APP_LOG="$CF_LOG_DIR/app.log"
 CF_CORE_LOG="$CF_LOG_DIR/core.log"
-CF_DEFAULT_BASE="/opt/cloudflare"
+CF_DEFAULT_BASE="${CF_DEFAULT_BASE:-/opt/cloudflare}"
+CF_DEFAULT_DATA_PATH="${CF_DEFAULT_DATA_PATH:-/etc/cloudflared}"
+CF_DEFAULT_CORE_DIR="${CF_DEFAULT_CORE_DIR:-/opt/cloudflared/bin}"
+CF_DEFAULT_CORE="$CF_DEFAULT_CORE_DIR/cloudflared"
+CF_BACKUP_DIR="${CF_BACKUP_DIR:-/opt/cloudflared/backups}"
 CF_DEFAULT_DOWNLOAD="https://github.com/cloudflare/cloudflared/releases/latest/download"
 
 cf_log() {
@@ -94,8 +98,42 @@ cf_commit() {
 	uci commit cloudflared 2>/dev/null || true
 }
 
+# Legacy installs shared one base directory for binary and data. New installs
+# keep the binary under /opt/cloudflared and all persistent data under /etc.
+cf_legacy_base_path() {
+	uci -q get cloudflared.main.base_path 2>/dev/null
+}
+
+cf_data_path() {
+	local path legacy
+
+	path="$(uci -q get cloudflared.main.data_path 2>/dev/null)"
+	[ -n "$path" ] || path="$(cf_legacy_base_path)"
+	[ -n "$path" ] || path="$CF_DEFAULT_DATA_PATH"
+	printf '%s' "$path"
+}
+
+cf_core_dir() {
+	printf '%s' "$CF_DEFAULT_CORE_DIR"
+}
+
+cf_backup_dir() {
+	local section="$1"
+	printf '%s/%s' "$CF_BACKUP_DIR" "$section"
+}
+
+# Kept as a compatibility alias for call sites that still refer to the old
+# combined base directory.
 cf_base_path() {
-	cf_get main base_path "$CF_DEFAULT_BASE"
+	local data legacy
+	data="$(uci -q get cloudflared.main.data_path 2>/dev/null)"
+	if [ -n "$data" ]; then
+		printf '%s' "$data"
+		return 0
+	fi
+	legacy="$(cf_legacy_base_path)"
+	[ -n "$legacy" ] && { printf '%s' "$legacy"; return 0; }
+	printf '%s' "$CF_DEFAULT_BASE"
 }
 
 cf_download_url() {
@@ -103,22 +141,31 @@ cf_download_url() {
 }
 
 cf_find_binary() {
-	local base custom f
+	local custom core legacy f
 
-	base="$(cf_base_path)"
 	custom="$(cf_get main cloudflared_path)"
-
 	if [ -n "$custom" ] && [ -x "$custom" ]; then
 		printf '%s' "$custom"
 		return 0
 	fi
 
-	for f in "$base/cloudflared" "$base"/cloudflared-linux-*; do
+	core="$(cf_core_dir)"
+	for f in "$core/cloudflared" "$core"/cloudflared-linux-*; do
 		if [ -x "$f" ]; then
 			printf '%s' "$f"
 			return 0
 		fi
 	done
+
+	legacy="$(cf_legacy_base_path)"
+	if [ -n "$legacy" ]; then
+		for f in "$legacy/cloudflared" "$legacy"/cloudflared-linux-*; do
+			if [ -x "$f" ]; then
+				printf '%s' "$f"
+				return 0
+			fi
+		done
+	fi
 
 	if [ -x "/usr/bin/cloudflared" ]; then
 		printf '%s' "/usr/bin/cloudflared"
@@ -139,16 +186,17 @@ cf_version() {
 
 cf_legacy_tunnel_dir() {
 	local section="$1"
-	local base tid dir
+	local data legacy tid dir
 
-	base="$(cf_base_path)"
+	data="$(cf_data_path)"
+	legacy="$(cf_legacy_base_path)"
 	tid="$(cf_get "$section" tunnel_id)"
 	[ -n "$tid" ] || return 1
 
 	# Older releases addressed anonymous sections as @tunnel[N] and stored
-	# their data under $base/tunnels/@tunnel[N]. Reuse that directory when it
+	# their data under the old base directory. Reuse that directory when it
 	# still belongs to this tunnel so upgrades do not lose credentials.
-	for dir in "$base"/tunnels/@*; do
+	for dir in "$data"/tunnels/@* ${legacy:+"$legacy"/tunnels/@*}; do
 		[ -d "$dir" ] || continue
 		if [ -f "$dir/$tid.json" ]; then
 			printf '%s' "$dir"
@@ -165,16 +213,16 @@ cf_legacy_tunnel_dir() {
 
 cf_tunnel_dir() {
 	local section="$1"
-	local base dir legacy
+	local data legacy dir
 
-	base="$(cf_base_path)"
+	data="$(cf_data_path)"
 	dir="$(cf_get "$section" data_dir)"
 
 	if [ -z "$dir" ]; then
-		if [ "$section" = "default" ] && [ -f "$base/config.yml" ]; then
-			dir="$base"
+		if [ "$section" = "default" ] && [ -f "$data/config.yml" ]; then
+			dir="$data"
 		else
-			dir="$base/tunnels/$section"
+			dir="$data/tunnels/$section"
 			if [ ! -d "$dir" ]; then
 				legacy="$(cf_legacy_tunnel_dir "$section" 2>/dev/null)" || legacy=""
 				[ -n "$legacy" ] && dir="$legacy"
@@ -199,9 +247,26 @@ cf_cert_path() {
 		fi
 	fi
 	[ -n "$path" ] || path="$(cf_get main cert_path)"
-	[ -n "$path" ] || path="$(cf_base_path)/cert.pem"
+	[ -n "$path" ] || path="$(cf_data_path)/cert.pem"
 
 	printf '%s' "$path"
+}
+
+# Target path used when writing a newly authorized certificate. Always keep
+# it inside the tunnel directory unless the user explicitly configured one,
+# so authorizing another Cloudflare account cannot overwrite a shared cert.
+cf_tunnel_cert_target() {
+	local section="$1"
+	local path dir
+
+	path="$(cf_get "$section" cert_path)"
+	if [ -n "$path" ]; then
+		printf '%s' "$path"
+		return 0
+	fi
+
+	dir="$(cf_tunnel_dir "$section")"
+	printf '%s/cert.pem' "$dir"
 }
 
 cf_config_path() {
@@ -216,7 +281,7 @@ cf_config_path() {
 
 cf_credentials() {
 	local section="$1"
-	local file dir tid base legacy
+	local file dir tid data legacy_base legacy
 
 	file="$(cf_get "$section" credentials_file)"
 	if [ -n "$file" ] && [ -f "$file" ]; then
@@ -226,16 +291,26 @@ cf_credentials() {
 
 	dir="$(cf_tunnel_dir "$section")"
 	tid="$(cf_get "$section" tunnel_id)"
-	base="$(cf_base_path)"
+	data="$(cf_data_path)"
+	legacy_base="$(cf_legacy_base_path)"
 	legacy="$(cf_legacy_tunnel_dir "$section" 2>/dev/null)" || legacy=""
 
 	for file in "$dir/$tid.json" "$dir"/*.json \
-	            "$base/$tid.json" "$base"/*.json \
+	            "$data/$tid.json" "$data"/*.json \
 	            "/root/.cloudflared/$tid.json" "/root/.cloudflared"/*.json; do
 		[ -f "$file" ] || continue
 		printf '%s' "$file"
 		return 0
 	done
+
+	# Old installs kept credentials directly in the legacy base directory.
+	if [ -n "$legacy_base" ] && [ "$legacy_base" != "$data" ]; then
+		for file in "$legacy_base/$tid.json" "$legacy_base"/*.json; do
+			[ -f "$file" ] || continue
+			printf '%s' "$file"
+			return 0
+		done
+	fi
 
 	if [ -n "$legacy" ] && [ "$legacy" != "$dir" ]; then
 		for file in "$legacy/$tid.json" "$legacy"/*.json; do
@@ -282,7 +357,7 @@ cf_tunnel_sections() {
 
 cf_gen_config() {
 	local section="$1"
-	local dir cfg tunnel_id creds cert tmp ingress host service name
+	local dir cfg tunnel_id creds cert tmp bakdir ingress host service name
 	local host_header no_tls origin_name ipath
 	local connect_timeout tls_timeout tcp_keepalive no_happy
 	local proxy_addr proxy_port proxy_type
@@ -402,11 +477,17 @@ cf_gen_config() {
 		return 1
 	}
 
-	if [ -f "$cfg.bak1" ]; then
-		mv -f "$cfg.bak1" "$cfg.bak2"
+	# Keep rotating config backups outside /etc so sysupgrade does not carry
+	# them. Fall back next to the config only when the backup dir is unusable.
+	bakdir="$(cf_backup_dir "$section")"
+	if ! mkdir -p "$bakdir" 2>/dev/null; then
+		bakdir="$dir"
+	fi
+	if [ -f "$bakdir/config.yml.bak1" ]; then
+		mv -f "$bakdir/config.yml.bak1" "$bakdir/config.yml.bak2" 2>/dev/null || true
 	fi
 	if [ -f "$cfg" ]; then
-		mv -f "$cfg" "$cfg.bak1"
+		mv -f "$cfg" "$bakdir/config.yml.bak1" 2>/dev/null || true
 	fi
 
 	mv -f "$tmp" "$cfg" || return 1

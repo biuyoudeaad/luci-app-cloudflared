@@ -868,3 +868,36 @@ msgstr "一键检查"
 
 msgid "No enabled sites to check."
 msgstr "没有已启用的站点可检查。"
+
+msgid "Persistent directory for certificates, tunnel credentials and generated configs. Backed up by sysupgrade."
+msgstr "证书、隧道凭据和生成配置的持久目录，会随 sysupgrade 自动备份。"
+
+msgid "Leave empty to auto-detect /opt/cloudflared/bin/cloudflared or /usr/bin/cloudflared."
+msgstr "留空则自动检测 /opt/cloudflared/bin/cloudflared 或 /usr/bin/cloudflared。"
+
+msgid "Global Certificate Path"
+msgstr "全局证书路径"
+
+msgid "Account-level cert.pem used when a tunnel has no certificate of its own. New tunnel authorization writes to the tunnel data directory instead."
+msgstr "隧道没有独立证书时使用的账号级 cert.pem。新隧道授权时会写入该隧道的数据目录。"
+
+msgid "Leave empty to use /etc/cloudflared/tunnels/<section>."
+msgstr "留空则使用 /etc/cloudflared/tunnels/<section>。"
+
+msgid "Leave empty to use <data_dir>/cert.pem; authorization writes here. If it does not exist, the global certificate is used. Different Cloudflare accounts need different certificates."
+msgstr "留空则使用 <data_dir>/cert.pem，授权证书会写入这里。若不存在则使用全局证书。不同 Cloudflare 账号必须使用不同证书。"
+
+msgid "Runtime Paths"
+msgstr "运行路径"
+
+msgid "Core directory"
+msgstr "核心目录"
+
+msgid "Backup directory"
+msgstr "备份目录"
+
+msgid "Runtime state"
+msgstr "运行状态"
+
+msgid "Logs"
+msgstr "日志"

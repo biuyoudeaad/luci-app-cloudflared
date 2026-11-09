@@ -32,22 +32,44 @@ function serviceButton(op, label, style) {
 
 return view.extend({
 	render: function() {
-		const map = new form.Map('cloudflared', _('Cloudflared Overview'), _('Configure Cloudflare Tunnel') + ' ' + _('Save only stores changes; Save & Apply rebuilds config and restarts the service.'));
+		// Render the page header ourselves and keep the form header empty.
+		// The form is placed below the status cards, but the title should stay
+		// at the top of the page.
+		const map = new form.Map('cloudflared', '', '');
+
+		const pageHeader = E('div', {}, [
+			E('h2', { 'name': 'content' }, [ _('Cloudflared Overview') ]),
+			E('div', { 'class': 'cbi-map-descr' }, [
+				_('Configure Cloudflare Tunnel') + ' ' + _('Save only stores changes; Save & Apply rebuilds config and restarts the service.')
+			])
+		]);
 
 		let s = map.section(form.NamedSection, 'main', 'main', _('Main Settings'));
 		s.addremove = false;
 
-		let o = s.option(form.Value, 'base_path', _('Cloudflare Base Path'),
-			_('Directory for tunnel data, cert.pem and downloaded binary.'));
-		o.default = '/opt/cloudflare';
+		let o = s.option(form.Value, 'data_path', _('Data Directory'),
+			_('Persistent directory for certificates, tunnel credentials and generated configs. Backed up by sysupgrade.'));
+		o.placeholder = '/etc/cloudflared';
 
 		o = s.option(form.Value, 'cloudflared_path', _('Cloudflared Binary Path'),
-			_('Leave empty to auto-detect from base path.'));
+			_('Leave empty to auto-detect /opt/cloudflared/bin/cloudflared or /usr/bin/cloudflared.'));
+		o.placeholder = '/opt/cloudflared/bin/cloudflared';
 		o.rmempty = true;
 
-		o = s.option(form.Value, 'cert_path', _('Default Certificate Path'),
-			_('Leave empty to use &lt;base_path&gt;/cert.pem.'));
+		o = s.option(form.Value, 'cert_path', _('Global Certificate Path'),
+			_('Account-level cert.pem used when a tunnel has no certificate of its own. New tunnel authorization writes to the tunnel data directory instead.'));
+		o.placeholder = '/etc/cloudflared/cert.pem';
 		o.rmempty = true;
+
+		o = s.option(form.DummyValue, '_runtime_paths', _('Runtime Paths'));
+		o.textvalue = function() {
+			return E('div', {}, [
+				E('div', {}, [ _('Core directory') + ': ', E('code', {}, [ '/opt/cloudflared/bin' ]) ]),
+				E('div', {}, [ _('Backup directory') + ': ', E('code', {}, [ '/opt/cloudflared/backups' ]) ]),
+				E('div', {}, [ _('Runtime state') + ': ', E('code', {}, [ '/tmp/cloudflared' ]) ]),
+				E('div', {}, [ _('Logs') + ': ', E('code', {}, [ '/var/log/cloudflared' ]) ])
+			]);
+		};
 
 		o = s.option(form.Value, 'api_token', _('Cloudflare API Token'));
 		o.password = true;
@@ -402,7 +424,7 @@ return view.extend({
 			});
 
 			return map.render().then(function(formNode) {
-				return E('div', {}, [ checkCard, guideRow, stats, top, formNode ]);
+				return E('div', {}, [ pageHeader, checkCard, guideRow, stats, top, formNode ]);
 			});
 		});
 	},

@@ -36,6 +36,16 @@ helper.assert(ok2, "regen_sections failed after edit")
 helper.assert(cfg_changed == true, "config content should change after edit")
 
 helper.assert(common.is_safe_path("/opt/cloudflare/cert.pem"), "absolute path should be safe")
+helper.assert(common.is_safe_path("/etc/cloudflared/cert.pem"), "new data path should be safe")
 helper.assert(not common.is_safe_path("../etc/passwd"), "traversal path must be rejected")
+
+-- New persistent layout: data_path wins over legacy base_path.
+local data = tmp .. "/data"
+helper.set("cloudflared.main.data_path", data)
+helper.assert(common.data_path() == data, "data_path should be used")
+helper.assert(common.tunnel_dir("t3") == data .. "/tunnels/t3", "tunnel dir should follow data_path")
+helper.assert(common.core_target() == "/opt/cloudflared/bin/cloudflared", "core target should use new core dir")
+helper.set("cloudflared.main.cert_path", "")
+helper.assert(common.resolve_cert("t3") == data .. "/cert.pem", "cert should default under data_path")
 
 print("lua snapshot/change-detection test passed")

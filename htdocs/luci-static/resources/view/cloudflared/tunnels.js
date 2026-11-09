@@ -446,17 +446,20 @@ return view.extend({
 		};
 
 		o = s.option(form.Value, 'data_dir', _('Data Directory'),
-			_('Leave empty to use &lt;base_path&gt;/tunnels/&lt;section&gt;.'));
+			_('Leave empty to use /etc/cloudflared/tunnels/<section>.'));
+		o.placeholder = '/etc/cloudflared/tunnels/<section>';
 		o.rmempty = true;
 		o.modalonly = true;
 
 		o = s.option(form.Value, 'cert_path', _('Certificate Path'),
-			_('Leave empty to use the default cert.pem.'));
+			_('Leave empty to use <data_dir>/cert.pem; authorization writes here. If it does not exist, the global certificate is used. Different Cloudflare accounts need different certificates.'));
+		o.placeholder = '<data_dir>/cert.pem';
 		o.rmempty = true;
 		o.modalonly = true;
 
 		o = s.option(form.Value, 'credentials_file', _('Credentials File'),
-			_('Leave empty to auto-detect &lt;tunnel_id&gt;.json in the data directory.'));
+			_('Leave empty to auto-detect <tunnel_id>.json in the data directory.'));
+		o.placeholder = '<data_dir>/<tunnel_id>.json';
 		o.rmempty = true;
 		o.modalonly = true;
 

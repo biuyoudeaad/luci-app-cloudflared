@@ -11,7 +11,7 @@ uci show cloudflared
 
 - [ ] 旧版单隧道配置升级后自动生成 `default` 隧道
 - [ ] 旧 `ingress` 规则自动归属 `default`
-- [ ] `/opt/cloudflare/config.yml` 继续可用
+- [ ] 旧 `base_path` 配置仍可回退使用
 
 ## 2. 多隧道
 
@@ -34,13 +34,15 @@ uci show cloudflared
 
 - [ ] 概览页显示架构、当前版本、二进制路径
 - [ ] 点击 **安装 / 更新** 能下载并校验二进制
-- [ ] 更新后保留 `cloudflared.old`
+- [ ] 新核心安装到 `/opt/cloudflared/bin/cloudflared`
+- [ ] 更新后保留 `/opt/cloudflared/bin/cloudflared.old`
 - [ ] 小闪存设备（剩余 < 100MB）出现明确空间不足提示
 
 ## 5. 授权与上传
 
 - [ ] 点击 **授权** 显示 URL，授权后自动检测 cert.pem
 - [ ] 点击 **复制链接** 可复制授权 URL
+- [ ] 授权后证书写入 `/etc/cloudflared/tunnels/<section>/cert.pem`
 - [ ] 上传 `cert.pem` 后保存并应用自动生效
 - [ ] 上传 `<tunnel_id>.json` 后隧道 ID / 凭据路径正确更新
 - [ ] 非法 PEM / JSON 被拒绝

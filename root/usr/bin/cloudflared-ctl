@@ -209,13 +209,13 @@ cmd_status() {
 cmd_login_start() {
 	local section="${1:-}"
 	local force="${2:-0}"
-	local bin cert dir log status home pid exitfile started
+	local bin cert dir log status home pid exitfile started certbak
 
 	[ -n "$section" ] || { cf_err "missing section"; return 1; }
 	tunnel_exists "$section" || { cf_err "unknown section: $section"; return 1; }
 
 	bin="$(cf_find_binary)" || { cf_err "cloudflared binary not found"; return 1; }
-	cert="$(cf_cert_path "$section")"
+	cert="$(cf_tunnel_cert_target "$section")"
 	dir="$(cf_tunnel_dir "$section")"
 	log="$CF_STATE_DIR/login-$section.log"
 	status="$CF_STATE_DIR/login-$section.status"
@@ -234,7 +234,9 @@ cmd_login_start() {
 	fi
 
 	if [ -f "$cert" ]; then
-		cp -f "$cert" "$cert.bak.$(date +%s)" 2>/dev/null || true
+		certbak="$(cf_backup_dir "$section")"
+		mkdir -p "$certbak" 2>/dev/null || certbak="$(dirname "$cert")"
+		cp -f "$cert" "$certbak/cert.pem.bak.$(date +%s)" 2>/dev/null || true
 	fi
 
 	: > "$log"
@@ -271,17 +273,19 @@ cmd_login_status() {
 	pid="$(cat "$CF_STATE_DIR/login-$section.pid" 2>/dev/null || true)"
 	exitfile="$CF_STATE_DIR/login-$section.exit"
 	started="$(cat "$CF_STATE_DIR/login-$section.started" 2>/dev/null || true)"
-	cert="$(cf_cert_path "$section")"
+	cert="$(cf_tunnel_cert_target "$section")"
 
 	url="$(grep -oE 'https://dash\.cloudflare\.com[^[:space:]]*' "$log" 2>/dev/null | head -n 1)"
 
+	# Only trust the cert produced by the current login session. Falling back
+	# to /root could silently reuse a certificate from another Cloudflare
+	# account when the user is authorizing a new tunnel.
 	src=""
-	for p in "$home/.cloudflared/cert.pem" "/root/.cloudflared/cert.pem" "${HOME:-/root}/.cloudflared/cert.pem"; do
-		if [ -n "$p" ] && [ -f "$p" ]; then
-			src="$p"
-			break
-		fi
-	done
+	if [ -n "$home" ] && [ -f "$home/.cloudflared/cert.pem" ]; then
+		src="$home/.cloudflared/cert.pem"
+	elif [ -z "$home" ] && [ -f "/root/.cloudflared/cert.pem" ]; then
+		src="/root/.cloudflared/cert.pem"
+	fi
 
 	if [ -n "$src" ]; then
 		mkdir -p "$(dirname "$cert")"
@@ -334,7 +338,7 @@ cmd_login_status() {
 cmd_install_cert() {
 	local section="${1:-}"
 	local src="${2:-}"
-	local dir cert size
+	local cert size
 
 	[ -n "$section" ] || { cf_err "missing section"; return 1; }
 	[ -f "$src" ] || { cf_err "file not found: $src"; return 1; }
@@ -346,9 +350,8 @@ cmd_install_cert() {
 	fi
 	grep -q 'BEGIN CERTIFICATE' "$src" || { cf_err "not a PEM certificate"; return 1; }
 
-	dir="$(cf_tunnel_dir "$section")"
-	mkdir -p "$dir"
-	cert="$dir/cert.pem"
+	cert="$(cf_tunnel_cert_target "$section")"
+	mkdir -p "$(dirname "$cert")"
 	cp -f "$src" "$cert" || return 1
 	chmod 600 "$cert" 2>/dev/null || true
 
@@ -405,8 +408,8 @@ cmd_tunnel_create() {
 	if [ -z "$uuid" ] && [ -n "$creds" ]; then
 		uuid="$(basename "$creds" .json)"
 	fi
-	if [ -z "$creds" ] && [ -n "$uuid" ] && [ -f "$(cf_base_path)/$uuid.json" ]; then
-		creds="$(cf_base_path)/$uuid.json"
+	if [ -z "$creds" ] && [ -n "$uuid" ] && [ -f "$(cf_data_path)/$uuid.json" ]; then
+		creds="$(cf_data_path)/$uuid.json"
 	fi
 	if [ -z "$uuid" ] || [ -z "$creds" ] || [ ! -f "$creds" ]; then
 		rm -rf "$home"
@@ -465,19 +468,12 @@ cmd_install_credentials() {
 
 cmd_core_install() {
 	local url_override="${1:-}"
-	local base target asset url status log tmp avail ver
+	local target asset url status log tmp avail ver
 	local expected actual digest api
 
-	base="$(cf_base_path)"
 	target="$(cf_get main cloudflared_path)"
 	if [ -z "$target" ]; then
-		if [ -x "$base/cloudflared" ]; then
-			target="$base/cloudflared"
-		elif [ -x /usr/bin/cloudflared ]; then
-			target="/usr/bin/cloudflared"
-		else
-			target="$base/cloudflared"
-		fi
+		target="$(cf_core_dir)/cloudflared"
 	fi
 	status="$CF_STATE_DIR/core-install.status"
 	log="$CF_STATE_DIR/core-install.log"

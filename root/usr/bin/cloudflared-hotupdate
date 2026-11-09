@@ -31,7 +31,8 @@ Usage:
 Options:
   -t, --tunnel <section>    Tunnel section to operate on (default: default)
   -d, --domain <domain>     Switch root domain and rewrite ingress hostnames
-  -b, --base-path <path>    Override cloudflared base path
+  -b, --base-path <path>    Override cloudflared data path (legacy name)
+      --data-path <path>    Override cloudflared data path
       --reauth              Re-run cloudflared login and refresh cert.pem
       --no-rewrite-hosts    Keep ingress hostnames unchanged when switching domain
       --no-dns-sync         Skip cloudflared route dns
@@ -74,7 +75,7 @@ while [ $# -gt 0 ]; do
 			[ $# -gt 0 ] || error "--domain requires a value"
 			NEW_DOMAIN="$1"
 			;;
-		-b|--base-path)
+		-b|--base-path|--data-path)
 			shift
 			[ $# -gt 0 ] || error "--base-path requires a value"
 			BASE_PATH="$1"
@@ -107,7 +108,7 @@ cf_require_root
 [ -x "$CTL" ] || error "cloudflared-ctl not found"
 
 if [ -n "$BASE_PATH" ]; then
-	uci -q set cloudflared.main.base_path="$BASE_PATH"
+	uci -q set cloudflared.main.data_path="$BASE_PATH"
 	uci -q commit cloudflared
 fi
 
@@ -122,11 +123,13 @@ fi
 if [ "$REAUTH" -eq 1 ]; then
 	step "Re-authorization"
 	BIN="$(cf_find_binary)" || error "cloudflared binary not found"
-	CERT_PATH="$(cf_cert_path "$SECTION")"
+	CERT_PATH="$(cf_tunnel_cert_target "$SECTION")"
+	CERT_BAK_DIR="$(cf_backup_dir "$SECTION")"
 	DIR="$(cf_tunnel_dir "$SECTION")"
 
 	if [ -f "$CERT_PATH" ]; then
-		cp -f "$CERT_PATH" "$CERT_PATH.bak.$(date +%s)" 2>/dev/null || true
+		mkdir -p "$CERT_BAK_DIR" 2>/dev/null || CERT_BAK_DIR="$(dirname "$CERT_PATH")"
+		cp -f "$CERT_PATH" "$CERT_BAK_DIR/cert.pem.bak.$(date +%s)" 2>/dev/null || true
 		info "Backed up existing cert: $CERT_PATH"
 	fi
 

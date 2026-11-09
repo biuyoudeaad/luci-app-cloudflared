@@ -4,10 +4,21 @@
 chmod +x /etc/init.d/cloudflared 2>/dev/null
 /etc/init.d/cloudflared enable 2>/dev/null
 
+# Legacy base directory: keep it available for old installs that have not been
+# migrated yet, but do not use it for new data.
 BASE="$(uci -q get cloudflared.main.base_path 2>/dev/null)"
 [ -n "$BASE" ] || BASE="/opt/cloudflare"
-mkdir -p "$BASE"
-mkdir -p /etc/luci-uploads /tmp/cloudflared /var/log/cloudflared 2>/dev/null || true
+
+# Persistent data lives in /etc/cloudflared so sysupgrade backs it up. The
+# binary and rotating backups stay under /opt/cloudflared and are not backed up.
+DATA="$(uci -q get cloudflared.main.data_path 2>/dev/null)"
+[ -n "$DATA" ] || DATA="/etc/cloudflared"
+mkdir -p "$DATA/tunnels" /opt/cloudflared/bin /opt/cloudflared/backups \
+	/etc/luci-uploads /tmp/cloudflared /var/log/cloudflared 2>/dev/null || true
+mkdir -p "$BASE" 2>/dev/null || true
+chmod 700 "$DATA" "$DATA/tunnels" /opt/cloudflared/backups 2>/dev/null || true
+chmod 755 /opt/cloudflared /opt/cloudflared/bin 2>/dev/null || true
+chmod 600 "$DATA/cert.pem" "$DATA"/tunnels/*/cert.pem "$DATA"/tunnels/*/*.json 2>/dev/null || true
 
 if ! uci -q get cloudflared.log >/dev/null 2>&1; then
 	uci -q set cloudflared.log=log

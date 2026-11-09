@@ -13,6 +13,8 @@ export MOCK_DB="$TMP/db"
 export MOCK_TYPE="$TMP/type"
 export CF_STATE_DIR="$TMP/state"
 export CLOUDFLARED_COMMON="$ROOT/root/usr/lib/cloudflared/common.sh"
+export CF_BACKUP_DIR="$TMP/backups"
+export CF_DEFAULT_CORE_DIR="$TMP/core"
 export PATH="$TESTDIR/mock:$PATH"
 
 chmod +x "$TESTDIR/mock/uci"

@@ -215,27 +215,63 @@ function M.api_token(section)
 	return token
 end
 
-function M.api_base_path()
+function M.data_path()
 	local cursor = uci.cursor()
-	return cursor:get("cloudflared", "main", "base_path") or "/opt/cloudflare"
+	local data = cursor:get("cloudflared", "main", "data_path") or ""
+	if data ~= "" then
+		return data
+	end
+	-- Old installs used one shared base directory for binary and data.
+	local legacy = cursor:get("cloudflared", "main", "base_path") or ""
+	if legacy ~= "" then
+		return legacy
+	end
+	return "/etc/cloudflared"
+end
+
+function M.legacy_base_path()
+	local cursor = uci.cursor()
+	return cursor:get("cloudflared", "main", "base_path") or ""
+end
+
+function M.core_dir()
+	return "/opt/cloudflared/bin"
+end
+
+function M.api_base_path()
+	return M.data_path()
 end
 
 function M.find_binary()
 	local cursor = uci.cursor()
-	local base = cursor:get("cloudflared", "main", "base_path") or "/opt/cloudflare"
+	local core = M.core_dir()
+	local legacy = M.legacy_base_path()
 	local custom = cursor:get("cloudflared", "main", "cloudflared_path") or ""
 
 	if custom ~= "" and fs.access(custom) then
 		return custom
 	end
-	if fs.access(base .. "/cloudflared") then
-		return base .. "/cloudflared"
+	if fs.access(core .. "/cloudflared") then
+		return core .. "/cloudflared"
 	end
-	local dir = fs.dir(base)
+	local dir = fs.dir(core)
 	if dir then
 		for file in dir do
-			if file:match("^cloudflared%-linux%-") and fs.access(base .. "/" .. file) then
-				return base .. "/" .. file
+			if file:match("^cloudflared%-linux%-") and fs.access(core .. "/" .. file) then
+				return core .. "/" .. file
+			end
+		end
+	end
+	if legacy ~= "" then
+		if fs.access(legacy .. "/cloudflared") then
+			return legacy .. "/cloudflared"
+		end
+		local ldir = fs.dir(legacy)
+		if ldir then
+			for file in ldir do
+				if file:match("^cloudflared%-linux%-") and fs.access(legacy .. "/" .. file) then
+					return legacy .. "/" .. file
+				end
 			end
 		end
 	end
@@ -246,22 +282,22 @@ function M.find_binary()
 end
 
 function M.tunnel_dir(section)
+	local data = M.data_path()
 	local cursor = uci.cursor()
-	local base = cursor:get("cloudflared", "main", "base_path") or "/opt/cloudflare"
 	local dir = cursor:get("cloudflared", section, "data_dir") or ""
 
 	if dir ~= "" then
 		return dir
 	end
-	if section == "default" and fs.access(base .. "/config.yml") then
-		return base
+	if section == "default" and fs.access(data .. "/config.yml") then
+		return data
 	end
-	return base .. "/tunnels/" .. section
+	return data .. "/tunnels/" .. section
 end
 
 function M.resolve_cert(section)
 	local cursor = uci.cursor()
-	local base = cursor:get("cloudflared", "main", "base_path") or "/opt/cloudflare"
+	local data = M.data_path()
 	local path = cursor:get("cloudflared", section, "cert_path") or ""
 
 	if path == "" then
@@ -274,7 +310,7 @@ function M.resolve_cert(section)
 		path = cursor:get("cloudflared", "main", "cert_path") or ""
 	end
 	if path == "" then
-		path = base .. "/cert.pem"
+		path = data .. "/cert.pem"
 	end
 	return path
 end
@@ -505,19 +541,12 @@ end
 
 function M.core_target()
 	local cursor = uci.cursor()
-	local base = cursor:get("cloudflared", "main", "base_path") or "/opt/cloudflare"
 	local custom = cursor:get("cloudflared", "main", "cloudflared_path") or ""
 
 	if custom ~= "" then
 		return custom
 	end
-	if fs.access(base .. "/cloudflared") then
-		return base .. "/cloudflared"
-	end
-	if fs.access("/usr/bin/cloudflared") then
-		return "/usr/bin/cloudflared"
-	end
-	return base .. "/cloudflared"
+	return M.core_dir() .. "/cloudflared"
 end
 
 function M.action_core_check()
@@ -1437,7 +1466,8 @@ function M.action_overview()
 		binary = bin or "",
 		version = version,
 		arch = arch,
-		base = cursor:get("cloudflared", "main", "base_path") or "/opt/cloudflare",
+		base = M.data_path(),
+		data_path = M.data_path(),
 	}
 end
 

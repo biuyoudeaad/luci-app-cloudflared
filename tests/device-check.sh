@@ -15,13 +15,19 @@ warn() { printf '[WARN] %s\n' "$*"; }
 	exit 1
 }
 
-BASE="$(uci -q get cloudflared.main.base_path 2>/dev/null)"
-[ -n "$BASE" ] || BASE="/opt/cloudflare"
+DATA="$(uci -q get cloudflared.main.data_path 2>/dev/null)"
+[ -n "$DATA" ] || DATA="$(uci -q get cloudflared.main.base_path 2>/dev/null)"
+[ -n "$DATA" ] || DATA="/etc/cloudflared"
+LEGACY_BASE="$(uci -q get cloudflared.main.base_path 2>/dev/null)"
+[ -n "$LEGACY_BASE" ] || LEGACY_BASE="/opt/cloudflare"
+CORE_DIR="/opt/cloudflared/bin"
 
 BIN="$(uci -q get cloudflared.main.cloudflared_path 2>/dev/null)"
 if [ -z "$BIN" ] || [ ! -x "$BIN" ]; then
-	if [ -x "$BASE/cloudflared" ]; then
-		BIN="$BASE/cloudflared"
+	if [ -x "$CORE_DIR/cloudflared" ]; then
+		BIN="$CORE_DIR/cloudflared"
+	elif [ -x "$LEGACY_BASE/cloudflared" ]; then
+		BIN="$LEGACY_BASE/cloudflared"
 	elif [ -x "/usr/bin/cloudflared" ]; then
 		BIN="/usr/bin/cloudflared"
 	else
@@ -35,11 +41,13 @@ else
 	fail "cloudflared binary not found or not executable"
 fi
 
-AVAIL="$(df -k "$BASE" 2>/dev/null | awk 'NR==2 {print $4}')"
+AVAIL_DIR="$CORE_DIR"
+[ -n "$BIN" ] && AVAIL_DIR="$(dirname "$BIN")"
+AVAIL="$(df -k "$AVAIL_DIR" 2>/dev/null | awk 'NR==2 {print $4}')"
 if [ -n "$AVAIL" ] && [ "$AVAIL" -lt 102400 ]; then
-	warn "low free space: ${AVAIL}KB at $BASE"
+	warn "low free space: ${AVAIL}KB at $AVAIL_DIR"
 else
-	pass "free space: ${AVAIL:-unknown}KB at $BASE"
+	pass "free space: ${AVAIL:-unknown}KB at $AVAIL_DIR"
 fi
 
 TUNNELS="$(uci -q -X show cloudflared 2>/dev/null | sed -n 's/^cloudflared\.\([^.=]*\)=tunnel$/\1/p')"
@@ -54,7 +62,7 @@ for section in $TUNNELS; do
 	dir="$(uci -q get "cloudflared.$section.data_dir" 2>/dev/null)"
 	if [ -z "$dir" ]; then
 		config="$(/usr/bin/cloudflared-ctl get-config-path "$section" 2>/dev/null)"
-		[ -n "$config" ] || config="$BASE/tunnels/$section/config.yml"
+		[ -n "$config" ] || config="$DATA/tunnels/$section/config.yml"
 		dir="${config%/config.yml}"
 	else
 		config="$dir/config.yml"
@@ -86,7 +94,7 @@ for section in $TUNNELS; do
 
 	cert="$(uci -q get "cloudflared.$section.cert_path" 2>/dev/null)"
 	[ -n "$cert" ] || cert="$(uci -q get cloudflared.main.cert_path 2>/dev/null)"
-	[ -n "$cert" ] || cert="$BASE/cert.pem"
+	[ -n "$cert" ] || cert="$DATA/cert.pem"
 	if [ -f "$cert" ]; then
 		pass "cert: $cert"
 	else
