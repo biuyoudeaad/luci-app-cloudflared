@@ -449,11 +449,52 @@ function M.action_dns_sync(p)
 	if not M.section_exists(section) then
 		return { ok = false, message = "Unknown tunnel: " .. section }
 	end
-	local out, code = M.run("dns-sync " .. M.shellquote(section))
+
+	local tunnels = M.list_tunnels()
+	local hosts = {}
+	local cursor = uci.cursor()
+
+	cursor:foreach("cloudflared", "ingress", function(rule)
+		local target = M.resolve_ingress_tunnel(tunnels, rule.tunnel or "")
+		local host = rule.hostname or ""
+		if target == section and (rule.enabled or "1") ~= "0" and host ~= "" then
+			hosts[host] = true
+		end
+	end)
+
+	local created, exists, failed = {}, {}, {}
+
+	for host in pairs(hosts) do
+		local out = M.run(string.format("dns-sync-host %s %s",
+			M.shellquote(section), M.shellquote(host)))
+		local info = M.parse_kv(out)
+		local state = info.status or "failed"
+
+		if state == "created" then
+			created[#created + 1] = host
+		elseif state == "exists" then
+			exists[#exists + 1] = host
+		else
+			failed[#failed + 1] = host
+		end
+	end
+
+	table.sort(created)
+	table.sort(exists)
+	table.sort(failed)
+
 	return {
-		ok = code == 0,
-		message = out,
-		created = tonumber(out:match("created=(%d+)")) or 0,
+		ok = #failed == 0,
+		section = section,
+		total = #created + #exists + #failed,
+		created = created,
+		exists = exists,
+		failed = failed,
+		created_count = #created,
+		exists_count = #exists,
+		failed_count = #failed,
+		message = string.format("created=%d exists=%d failed=%d",
+			#created, #exists, #failed),
 	}
 end
 

@@ -802,3 +802,69 @@ msgstr "请先保存并应用当前隧道，再点击创建隧道。"
 
 msgid "This tunnel already has an ID. Creating a new tunnel will replace it. Continue?"
 msgstr "当前隧道已有 Tunnel ID，创建新隧道会覆盖原 ID，是否继续？"
+
+msgid "Created"
+msgstr "新建成功"
+
+msgid "Created: %s"
+msgstr "新建成功 %s"
+
+msgid "DNS sync result"
+msgstr "DNS 同步结果"
+
+msgid "Existing"
+msgstr "已存在"
+
+msgid "Existing: %s"
+msgstr "已存在 %s"
+
+msgid "Failed"
+msgstr "失败"
+
+msgid "Failed: %s"
+msgstr "失败 %s"
+
+msgid "Current tunnel has no domain."
+msgstr "当前隧道还没有配置域名。"
+
+msgid "Domain migration"
+msgstr "域名迁移"
+
+msgid "Migrate"
+msgstr "开始迁移"
+
+msgid "Migrate Domain"
+msgstr "切换域名并迁移"
+
+msgid "New domain"
+msgstr "新域名"
+
+msgid "Old domain"
+msgstr "旧域名"
+
+msgid "Restart service"
+msgstr "重启服务"
+
+msgid "Rewrite ingress hostnames"
+msgstr "重写入站主机名"
+
+msgid "Rewritten %s rules"
+msgstr "已重写 %s 条规则"
+
+msgid "The new domain must differ from the current domain."
+msgstr "新域名必须与当前域名不同。"
+
+msgid "Unchanged"
+msgstr "保持不变"
+
+msgid "Will rewrite"
+msgstr "将改写"
+
+msgid "Already using new domain"
+msgstr "已使用新域名"
+
+msgid "Check All"
+msgstr "一键检查"
+
+msgid "No enabled sites to check."
+msgstr "没有已启用的站点可检查。"

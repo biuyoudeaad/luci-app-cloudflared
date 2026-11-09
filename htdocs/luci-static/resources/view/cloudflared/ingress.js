@@ -269,6 +269,69 @@ const DnsStatus = form.DummyValue.extend({
 	}
 });
 
+function runIngressTest(section, result) {
+	const box = result || document.getElementById('cf-test-' + section);
+	if (box) {
+		box.className = 'cf-test-result';
+		box.textContent = '...';
+		box.title = '';
+	}
+
+	return cfApi.action('test_ingress', { section: section }).then(function(r) {
+		if (!box)
+			return r;
+
+		if (!r) {
+			box.textContent = '✖ ' + _('Request failed');
+			return r;
+		}
+
+		if (r.disabled) {
+			box.className = 'cf-test-result';
+			box.textContent = '— ' + (r.message || _('Disabled'));
+			box.title = JSON.stringify(r, null, 2);
+			return r;
+		}
+
+		const parts = [];
+		if (r.backend) parts.push(r.backend);
+		if (r.tunnel_running === false) parts.push(_('Tunnel not running'));
+		if (r.dns) parts.push('DNS: ' + r.dns);
+		if (r.public_status) parts.push(_('Public') + ': ' + r.public_status);
+
+		const level = r.level || (r.ok ? 'ok' : 'error');
+		const icon = (level === 'ok') ? '✔' : (level === 'warn' ? '⚠' : '✖');
+		box.className = 'cf-test-result cf-test-' + level;
+		box.textContent = icon + ' ' + parts.join(' | ');
+		box.title = JSON.stringify(r, null, 2);
+		return r;
+	});
+}
+
+function setBusyButton(button, busy) {
+	if (!button)
+		return;
+
+	if (busy) {
+		if (button._cfBusy)
+			return;
+
+		button._cfBusy = true;
+		button.disabled = true;
+		button.classList.add('cf-busy');
+		button.insertBefore(E('span', { 'class': 'cf-spinner' }), button.firstChild);
+	}
+	else {
+		button._cfBusy = false;
+		button.disabled = false;
+		button.classList.remove('cf-busy');
+
+		const spinner = button.querySelector('.cf-spinner');
+		if (spinner)
+			spinner.remove();
+	}
+}
+
 const TestValue = form.DummyValue.extend({
 	cfgvalue: function() { return null; },
 	write: function() {},
@@ -281,33 +344,7 @@ const TestValue = form.DummyValue.extend({
 			'type': 'button',
 			'class': 'btn cbi-button cf-test-button',
 			'click': function() {
-				result.textContent = '...';
-				result.title = '';
-
-				cfApi.action('test_ingress', { section: section_id }).then(function(r) {
-					if (!r) {
-						result.textContent = '✖ ' + _('Request failed');
-						return;
-					}
-
-					if (r.disabled) {
-						result.textContent = '— ' + (r.message || _('Disabled'));
-						result.title = JSON.stringify(r, null, 2);
-						return;
-					}
-
-					const parts = [];
-					if (r.backend) parts.push(r.backend);
-					if (r.tunnel_running === false) parts.push(_('Tunnel not running'));
-					if (r.dns) parts.push('DNS: ' + r.dns);
-					if (r.public_status) parts.push(_('Public') + ': ' + r.public_status);
-
-					const level = r.level || (r.ok ? 'ok' : 'error');
-					const icon = (level === 'ok') ? '✔' : (level === 'warn' ? '⚠' : '✖');
-					result.className = 'cf-test-result cf-test-' + level;
-					result.textContent = icon + ' ' + parts.join(' | ');
-					result.title = JSON.stringify(r, null, 2);
-				});
+				runIngressTest(section_id, result);
 			}
 		}, [ _('Test') ]);
 
@@ -663,6 +700,40 @@ return view.extend({
 				});
 			}
 
+			function checkAllIngress(button) {
+				const rows = dataRows();
+				const targets = [];
+
+				rows.forEach(function(row) {
+					const cb = row.querySelector('[data-name="enabled"] input[type="checkbox"]');
+					if (cb && !cb.checked)
+						return;
+
+					targets.push(row.id.substring('cbi-cloudflared-'.length));
+				});
+
+				if (!targets.length) {
+					ui.addNotification(null, E('p', {}, [ _('No enabled sites to check.') ]), 'warning');
+					return;
+				}
+
+				setBusyButton(button, true);
+				let index = 0;
+
+				function next() {
+					if (index >= targets.length) {
+						setBusyButton(button, false);
+						return;
+					}
+
+					const section = targets[index++];
+					runIngressTest(section, document.getElementById('cf-test-' + section))
+						.then(next, next);
+				}
+
+				next();
+			}
+
 			function setupColumns() {
 				const table = tableElement();
 				if (!table)
@@ -701,12 +772,21 @@ return view.extend({
 					}, [ _('Reset') ]);
 					menu.appendChild(reset);
 
+					const checkAll = E('button', {
+						'type': 'button',
+						'class': 'btn cbi-button',
+						'click': function(ev) {
+							ev.stopPropagation();
+							checkAllIngress(ev.currentTarget);
+						}
+					}, [ _('Check All') ]);
+
 					const btn = E('button', { 'type': 'button', 'class': 'btn cbi-button', 'click': function(ev) {
 						ev.stopPropagation();
 						menu.style.display = (menu.style.display === 'none' || menu.style.display === '') ? 'block' : 'none';
 					} }, [ _('Columns') ]);
 
-					bar = E('div', { 'class': 'cf-columns-toolbar' }, [ btn, menu ]);
+					bar = E('div', { 'class': 'cf-columns-toolbar' }, [ checkAll, btn, menu ]);
 					menu.addEventListener('click', function(ev) { ev.stopPropagation(); });
 					document.addEventListener('click', function() { menu.style.display = 'none'; });
 

@@ -30,6 +30,207 @@ function quickError(r) {
 	ui.addNotification(null, E('p', {}, [ cfApi.message(r) ]), 'danger');
 }
 
+function dnsSummaryLine(r) {
+	r = r || {};
+	return _('Created: %s').format(r.created_count || 0) + ' · ' +
+		_('Existing: %s').format(r.exists_count || 0) + ' · ' +
+		_('Failed: %s').format(r.failed_count || 0);
+}
+
+function dnsBlock(title, list) {
+	if (!list || !list.length)
+		return '';
+
+	return E('div', { 'class': 'cf-dns-result-block' }, [
+		E('strong', {}, [ title + ' (' + list.length + ')' ]),
+		E('ul', {}, list.map(function(host) {
+			return E('li', {}, [ E('code', {}, [ host ]) ]);
+		}))
+	]);
+}
+
+function dnsBlocks(r) {
+	r = r || {};
+	return [
+		dnsBlock(_('Created'), r.created || []),
+		dnsBlock(_('Existing'), r.exists || []),
+		dnsBlock(_('Failed'), r.failed || [])
+	];
+}
+
+function showDnsResult(r) {
+	r = r || {};
+
+	const children = [ E('p', {}, [ dnsSummaryLine(r) ]) ]
+		.concat(dnsBlocks(r).filter(Boolean))
+		.concat([
+			E('div', { 'class': 'right' }, [
+				E('button', { 'class': 'btn cbi-button', 'click': ui.hideModal }, [ _('Dismiss') ])
+			])
+		]);
+
+	ui.showModal(_('DNS sync result'), children);
+}
+
+function migrateDomain(section_id, newDomain) {
+	const current = uci.get('cloudflared', section_id, 'applied_domain') ||
+		uci.get('cloudflared', section_id, 'domain') || '';
+	const target = String(newDomain || '').replace(/^\s+|\s+$/g, '');
+
+	if (!target) {
+		showResult(_('Domain migration'), _('Please enter a domain first'));
+		return;
+	}
+
+	if (!current) {
+		showResult(_('Domain migration'), _('Current tunnel has no domain.'));
+		return;
+	}
+
+	if (target === current) {
+		showResult(_('Domain migration'), _('The new domain must differ from the current domain.'));
+		return;
+	}
+
+	const tunnels = uci.sections('cloudflared', 'tunnel') || [];
+	const single = (tunnels.length === 1) ? tunnels[0]['.name'] : '';
+	const changed = [];
+	const already = [];
+	const unchanged = [];
+
+	function underDomain(host, domain) {
+		return host === domain ||
+			(host.length > domain.length &&
+			 host.substring(host.length - domain.length - 1) === '.' + domain);
+	}
+
+	(uci.sections('cloudflared', 'ingress') || []).forEach(function(rule) {
+		const owner = rule.tunnel || single;
+		if (owner !== section_id)
+			return;
+		if ((rule.enabled || '1') === '0')
+			return;
+
+		const host = rule.hostname || '';
+		if (!host)
+			return;
+
+		if (underDomain(host, current)) {
+			changed.push({
+				from: host,
+				to: (host === current)
+					? target
+					: host.substring(0, host.length - current.length) + target
+			});
+		}
+		else if (underDomain(host, target)) {
+			already.push(host);
+		}
+		else {
+			unchanged.push(host);
+		}
+	});
+
+	const rewrite = E('input', { 'type': 'checkbox', 'checked': '' });
+	const sync = E('input', { 'type': 'checkbox', 'checked': '' });
+	const restart = E('input', { 'type': 'checkbox', 'checked': '' });
+	const migrateBtn = E('button', {
+		'class': 'btn cbi-button cbi-button-apply',
+		'click': function() {
+			ui.hideModal();
+
+			const opts = {
+				rewrite: rewrite.checked,
+				sync: sync.checked,
+				restart: restart.checked
+			};
+
+			cfApi.action('domain_switch', {
+				section: section_id,
+				new_domain: target,
+				rewrite_hosts: opts.rewrite ? '1' : '0',
+				sync_dns: '0',
+				restart: '0'
+			}).then(function(r) {
+				if (!r || !r.ok) {
+					failResult(_('Domain migration'), r);
+					return null;
+				}
+
+				if (!opts.sync)
+					return r;
+
+				return cfApi.action('dns_sync', { section: section_id }).then(function(dns) {
+					r.dns = dns;
+					return r;
+				});
+			}).then(function(r) {
+				if (!r)
+					return null;
+
+				if (!opts.restart)
+					return r;
+
+				return cfApi.action('service', { op: 'restart' }).then(function(s) {
+					r.restarted = !!(s && s.ok);
+					if (!s || !s.ok)
+						r.restart_message = cfApi.message(s);
+					return r;
+				});
+			}).then(function(r) {
+				if (!r)
+					return;
+
+				let parts = [
+					E('p', {}, [ r.old + ' → ' + r.new ]),
+					E('p', {}, [
+						_('Rewritten %s rules').format(r.rewritten || 0)
+					])
+				];
+
+				if (r.dns) {
+					parts.push(E('p', {}, [ dnsSummaryLine(r.dns) ]));
+					parts = parts.concat(dnsBlocks(r.dns).filter(Boolean));
+				}
+
+				if (r.restart_message)
+					parts.push(E('p', { 'class': 'cf-note' }, [ r.restart_message ]));
+
+				parts.push(E('div', { 'class': 'right' }, [
+					E('button', {
+						'class': 'btn cbi-button cbi-button-apply',
+						'click': function() { location.reload(); }
+					}, [ _('Dismiss') ])
+				]));
+
+				ui.showModal(_('Domain migration'), parts);
+			});
+		}
+	}, [ _('Migrate') ]);
+
+	const body = [
+		E('p', {}, [ _('Old domain') + ': ' + current ]),
+		E('p', {}, [ _('New domain') + ': ' + target ]),
+		E('div', { 'class': 'cf-dns-result-block' }, [
+			E('strong', {}, [ _('Will rewrite') + ' (' + changed.length + ')' ]),
+			E('ul', {}, changed.map(function(item) {
+				return E('li', {}, [ E('code', {}, [ item.from + ' → ' + item.to ]) ]);
+			}))
+		]),
+		dnsBlock(_('Already using new domain'), already),
+		dnsBlock(_('Unchanged'), unchanged),
+		E('label', { 'class': 'cf-option-row' }, [ rewrite, E('span', {}, [ _('Rewrite ingress hostnames') ]) ]),
+		E('label', { 'class': 'cf-option-row' }, [ sync, E('span', {}, [ _('Sync DNS') ]) ]),
+		E('label', { 'class': 'cf-option-row' }, [ restart, E('span', {}, [ _('Restart service') ]) ]),
+		E('div', { 'class': 'right' }, [
+			E('button', { 'class': 'btn cbi-button', 'click': ui.hideModal }, [ _('Cancel') ]),
+			migrateBtn
+		])
+	];
+
+	ui.showModal(_('Domain migration'), body);
+}
+
 function pickFile(accept) {
 	return new Promise(function(resolve) {
 		const input = E('input', { 'type': 'file', 'accept': accept || null, 'style': 'display:none' });
@@ -112,7 +313,7 @@ function loginFlow(section_id, force) {
 		])
 	]);
 
-	cfApi.action('login_start', {
+	return cfApi.action('login_start', {
 		section: section_id,
 		force: force ? '1' : '0'
 	}).then(function(r) {
@@ -223,49 +424,24 @@ return view.extend({
 				E('button', {
 					'type': 'button',
 					'class': 'btn cbi-button',
-					'click': function(ev) {
+					'click': ui.createHandlerFn(null, function(ev) {
 						ev.preventDefault();
-						const btn = ev.currentTarget;
-						btn.disabled = true;
-						cfApi.action('dns_sync', { section: section_id }).then(function(r) {
-							btn.disabled = false;
-							if (!r || !r.ok)
+						return cfApi.action('dns_sync', { section: section_id }).then(function(r) {
+							if (!r)
 								quickError(r);
 							else
-								ui.addNotification(null, E('p', {}, [ _('DNS sync completed.') ]), 'info');
+								showDnsResult(r);
 						});
-					}
+					})
 				}, [ _('Sync DNS') ]),
 				E('button', {
 					'type': 'button',
 					'class': 'btn cbi-button cbi-button-apply',
 					'click': function(ev) {
 						ev.preventDefault();
-						const btn = ev.currentTarget;
-
-						if (!domain) {
-							ui.addNotification(null, E('p', {}, [ _('Please enter a domain first') ]), 'warning');
-							return;
-						}
-						if (!confirm(_('Switch domain and hot reload')))
-							return;
-
-						btn.disabled = true;
-						cfApi.action('domain_switch', {
-							section: section_id,
-							new_domain: domain,
-							rewrite_hosts: '1',
-							sync_dns: '1',
-							restart: '1'
-						}).then(function(r) {
-							btn.disabled = false;
-							if (!r || !r.ok)
-								quickError(r);
-							else
-								location.reload();
-						});
+						migrateDomain(section_id, domain);
 					}
-				}, [ _('Hot Reload') ])
+				}, [ _('Migrate Domain') ])
 			]);
 		};
 
@@ -315,7 +491,7 @@ return view.extend({
 		o.inputstyle = 'action';
 		o.modalonly = true;
 		o.onclick = function(ev, section_id) {
-			loginFlow(section_id, '0');
+			return loginFlow(section_id, '0');
 		};
 
 		o = s.option(form.Button, '_create', _('Create Tunnel'));
@@ -336,7 +512,7 @@ return view.extend({
 			if (!confirm(_('Create a Cloudflare tunnel for this entry?')))
 				return;
 
-			cfApi.action('tunnel_create', {
+			return cfApi.action('tunnel_create', {
 				section: section_id,
 				name: name,
 				force: existingId ? '1' : '0'
@@ -351,41 +527,19 @@ return view.extend({
 		o = s.option(form.Button, '_dns', _('Sync DNS'));
 		o.modalonly = true;
 		o.onclick = function(ev, section_id) {
-			cfApi.action('dns_sync', { section: section_id }).then(function(r) {
-				if (!r || !r.ok)
+			return cfApi.action('dns_sync', { section: section_id }).then(function(r) {
+				if (!r)
 					failResult(_('Sync DNS'), r);
-				else {
-					ui.hideModal();
-					ui.addNotification(null, E('p', {}, [ _('DNS sync completed.') ]), 'info');
-				}
+				else
+					showDnsResult(r);
 			});
 		};
 
-		o = s.option(form.Button, '_reload', _('Hot Reload'));
+		o = s.option(form.Button, '_reload', _('Migrate Domain'));
 		o.inputstyle = 'apply';
 		o.modalonly = true;
 		o.onclick = function(ev, section_id) {
-			const domain = siblingValue(this.section, section_id, 'domain');
-			if (!domain) {
-				ui.addNotification(null, E('p', {}, [ _('Please enter a domain first') ]), 'warning');
-				return;
-			}
-
-			if (!confirm(_('Switch domain and hot reload')))
-				return;
-
-			cfApi.action('domain_switch', {
-				section: section_id,
-				new_domain: domain,
-				rewrite_hosts: '1',
-				sync_dns: '1',
-				restart: '1'
-			}).then(function(r) {
-				if (!r || !r.ok)
-					failResult(_('Hot Reload'), r);
-				else
-					setTimeout(function() { location.reload(); }, 900);
-			});
+			migrateDomain(section_id, siblingValue(this.section, section_id, 'domain'));
 		};
 
 		o = s.option(form.Button, '_cert', _('Upload cert.pem'));

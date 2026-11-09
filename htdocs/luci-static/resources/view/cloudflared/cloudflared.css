@@ -565,3 +565,36 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
+
+
+.cf-dns-result-block {
+	margin-top: 10px;
+	max-height: 30vh;
+	overflow: auto;
+}
+
+.cf-dns-result-block ul {
+	margin: 4px 0 0 1.2em;
+	padding: 0;
+}
+
+.cf-dns-result-block li {
+	margin: 2px 0;
+}
+
+.cf-dns-result-block code {
+	word-break: break-all;
+}
+
+
+.cf-option-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 8px 0;
+	cursor: pointer;
+}
+
+.cf-option-row input {
+	margin: 0;
+}

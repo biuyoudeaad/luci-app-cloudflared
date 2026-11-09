@@ -92,6 +92,39 @@ cmd_dns_sync() {
 	printf 'OK created=%s\n' "$created"
 }
 
+cmd_dns_sync_host() {
+	local section="${1:-}"
+	local host="${2:-}"
+	local bin cert tunnel_id out code
+
+	[ -n "$section" ] || { cf_err "missing section"; return 1; }
+	[ -n "$host" ] || { cf_err "missing hostname"; return 1; }
+	tunnel_exists "$section" || { cf_err "unknown section: $section"; return 1; }
+
+	bin="$(cf_find_binary)" || { cf_err "cloudflared binary not found"; return 1; }
+	cert="$(cf_cert_path "$section")"
+	tunnel_id="$(cf_get "$section" tunnel_id)"
+
+	[ -n "$tunnel_id" ] || { cf_err "tunnel_id missing for section '$section'"; return 1; }
+	[ -f "$cert" ] || { cf_err "cert.pem missing: $cert"; return 1; }
+
+	out="$("$bin" tunnel --origincert "$cert" route dns "$tunnel_id" "$host" 2>&1)"
+	code=$?
+
+	if [ "$code" -eq 0 ]; then
+		printf 'status=created\nhost=%s\nmessage=created\n' "$host"
+		return 0
+	fi
+
+	if printf '%s' "$out" | grep -qiE 'already exists|record exists'; then
+		printf 'status=exists\nhost=%s\nmessage=already exists\n' "$host"
+		return 0
+	fi
+
+	printf 'status=failed\nhost=%s\nmessage=%s\n' "$host" "$(printf '%s' "$out" | tr '\n' ' ')"
+	return 0
+}
+
 cmd_domain_switch() {
 	local section="${1:-}"
 	local new="${2:-}"
@@ -790,6 +823,7 @@ main() {
 		get-config-path)     cmd_get_config_path "$@" ;;
 		domain-switch)       cmd_domain_switch "$@" ;;
 		dns-sync)            cmd_dns_sync "$@" ;;
+		dns-sync-host)       cmd_dns_sync_host "$@" ;;
 		status)              cmd_status "$@" ;;
 		version)             cmd_version "$@" ;;
 		login-start)         cmd_login_start "$@" ;;
