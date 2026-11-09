@@ -96,6 +96,15 @@ return view.extend({
 					_('Site counts use saved ingress rules. Running means valid configuration, a running tunnel process and a synced CNAME; origin reachability is not tested.'))
 			]);
 
+			const guideRow = E('div', { 'class': 'cf-stat-guide-row' }, [
+				E('a', {
+					'class': 'cf-stat-guide',
+					'href': 'https://blog.chdao.com.cn/archives/luci-app-cloudflared-cao-zuo-zhi-yin',
+					'target': '_blank',
+					'rel': 'noopener noreferrer'
+				}, [ _('操作指引') ])
+			]);
+
 			const enableBox = E('input', {
 				'type': 'checkbox',
 				'checked': ov.service_enabled ? '' : null
@@ -383,7 +392,7 @@ return view.extend({
 			});
 
 			return map.render().then(function(formNode) {
-				return E('div', {}, [ checkCard, stats, top, formNode ]);
+				return E('div', {}, [ checkCard, guideRow, stats, top, formNode ]);
 			});
 		});
 	},

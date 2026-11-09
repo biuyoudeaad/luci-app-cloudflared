@@ -532,3 +532,25 @@
 	.cf-table-filters input,
 	.cf-table-filters select { flex: 1 1 100%; max-width: none; }
 }
+
+
+
+
+.cf-stat-guide-row {
+	display: flex;
+	justify-content: flex-end;
+	margin: 0 2px -4px;
+}
+
+.cf-stat-guide {
+	font-size: 11px;
+	line-height: 1;
+	color: var(--text-subtle, var(--v-text-3, var(--text-3, #7f858b)));
+	text-decoration: none;
+	white-space: nowrap;
+}
+
+.cf-stat-guide:hover {
+	color: var(--text-muted, var(--v-text-3, var(--text-3, #5f666f)));
+	text-decoration: underline;
+}

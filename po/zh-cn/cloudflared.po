@@ -787,3 +787,6 @@ msgstr "每页条数"
 
 msgid "All"
 msgstr "全部"
+
+msgid "操作指引"
+msgstr "操作指引"
