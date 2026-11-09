@@ -790,3 +790,15 @@ msgstr "全部"
 
 msgid "操作指引"
 msgstr "操作指引"
+
+msgid "Already authorized, cert.pem exists."
+msgstr "已完成授权，已存在 cert.pem，无需重复登录。"
+
+msgid "Re-authorize"
+msgstr "重新授权"
+
+msgid "Save this tunnel first, then create it."
+msgstr "请先保存并应用当前隧道，再点击创建隧道。"
+
+msgid "This tunnel already has an ID. Creating a new tunnel will replace it. Continue?"
+msgstr "当前隧道已有 Tunnel ID，创建新隧道会覆盖原 ID，是否继续？"

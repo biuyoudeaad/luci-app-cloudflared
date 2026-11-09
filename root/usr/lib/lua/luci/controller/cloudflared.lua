@@ -100,6 +100,8 @@ function action()
 		result = common.action_site_stats()
 	elseif name == "overview" then
 		result = common.action_overview()
+	elseif name == "tunnel_status" then
+		result = common.action_tunnel_status()
 	elseif name == "apply_config" then
 		result = common.action_apply_config()
 	elseif name == "apply_tunnels" then

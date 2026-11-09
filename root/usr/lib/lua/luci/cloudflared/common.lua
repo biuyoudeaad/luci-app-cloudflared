@@ -651,7 +651,13 @@ end
 function M.action_tunnel_create(p)
 	local section = p.section or ""
 	if not M.section_exists(section) then
-		return { ok = false, message = "Unknown tunnel" }
+		return { ok = false, message = "Tunnel not saved yet; save it first" }
+	end
+
+	local cursor = uci.cursor()
+	local existing = cursor:get("cloudflared", section, "tunnel_id") or ""
+	if existing ~= "" and p.force ~= "1" then
+		return { ok = false, message = "Tunnel already has an ID; force required" }
 	end
 
 	local args = M.shellquote(section)
@@ -1301,6 +1307,63 @@ function M.action_core_cancel()
 	return { ok = true, message = "Install cancelled" }
 end
 
+
+function M.tunnel_state(tunnel, running)
+	if not tunnel.enabled then
+		return "disabled"
+	end
+
+	local domain = tunnel.domain or ""
+	local applied = tunnel.applied_domain or domain
+	if domain ~= "" and applied ~= domain then
+		return "pending"
+	end
+
+	if not running then
+		return "abnormal"
+	end
+
+	return "running"
+end
+
+function M.tunnel_counts(tunnels, instances)
+	local counts = { total = 0, running = 0, pending = 0, abnormal = 0, disabled = 0 }
+
+	for _, tunnel in ipairs(tunnels) do
+		local instance = instances["tunnel_" .. tunnel.section]
+		local state = M.tunnel_state(tunnel, instance ~= nil and instance.running == true)
+		counts[state] = counts[state] + 1
+		counts.total = counts.total + 1
+	end
+
+	return counts
+end
+
+function M.action_tunnel_status()
+	local tunnels = M.list_tunnels()
+	local instances = M.ubus_instances()
+	local status = {}
+
+	for _, tunnel in ipairs(tunnels) do
+		local instance = instances["tunnel_" .. tunnel.section]
+		local running = instance ~= nil and instance.running == true
+		status[tunnel.section] = {
+			state = M.tunnel_state(tunnel, running),
+			running = running,
+			enabled = tunnel.enabled,
+			domain = tunnel.domain,
+			applied_domain = tunnel.applied_domain or tunnel.domain,
+			tunnel_id = tunnel.tunnel_id,
+		}
+	end
+
+	return {
+		ok = true,
+		status = status,
+		counts = M.tunnel_counts(tunnels, instances),
+	}
+end
+
 function M.action_overview()
 	local cursor = uci.cursor()
 	local tunnels, tunnels_enabled = 0, 0
@@ -1320,8 +1383,10 @@ function M.action_overview()
 
 	local arch = (sys.exec("uname -m") or ""):gsub("%s+$", "")
 	local asset = M.core_asset() or {}
+	local tunnel_counts = M.tunnel_counts(M.list_tunnels(), M.ubus_instances())
 	return {
 		ok = true,
+		tunnel_counts = tunnel_counts,
 		asset_url = asset.url or "",
 		asset_name = asset.asset or "",
 		running = sys.call("pgrep -f 'cloudflared.*tunnel run' >/dev/null 2>&1") == 0,

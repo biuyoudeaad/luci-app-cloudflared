@@ -554,3 +554,14 @@
 	color: var(--text-muted, var(--v-text-3, var(--text-3, #5f666f)));
 	text-decoration: underline;
 }
+
+
+.cf-stat:not(.cf-stat-wide) .cf-site-counts {
+	font-size: .82em;
+	gap: 4px 8px;
+}
+
+.cf-stat:not(.cf-stat-wide) .cf-site-counts span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}

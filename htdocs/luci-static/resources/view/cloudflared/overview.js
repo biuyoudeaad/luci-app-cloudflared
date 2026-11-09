@@ -79,10 +79,20 @@ return view.extend({
 					E('span', { 'style': 'color:' + (ov.running ? 'var(--success, var(--v-ok, #0b7f6c))' : 'var(--danger, var(--v-err, #c42b2b))') },
 						[ (ov.running ? '● ' + _('Running') : '● ' + _('Stopped')) ]),
 					_('Enable on boot') + ': ' + (ov.service_enabled ? _('Enabled') : _('Inactive'))),
-				card('ok', _('Tunnels'),
-					E('span', {}, [ String(ov.tunnels || 0) ]),
-					_('Enabled') + ' ' + (ov.tunnels_enabled || 0) + ' · ' +
-					_('Inactive') + ' ' + ((ov.tunnels || 0) - (ov.tunnels_enabled || 0))),
+				(function() {
+					const tc = ov.tunnel_counts || { total: 0, running: 0, pending: 0, abnormal: 0, disabled: 0 };
+
+					return card((tc.abnormal > 0) ? 'warn' : 'ok',
+						_('Tunnels') + ' · ' + tc.total,
+						E('span', { 'class': 'cf-site-running' }, [
+							_('Running') + ' ' + tc.running
+						]),
+						E('div', { 'class': 'cf-site-counts' }, [
+							E('span', { 'class': 'cf-site-pending' }, [ _('Pending') + ' ' + tc.pending ]),
+							E('span', { 'class': 'cf-site-abnormal' }, [ _('Abnormal') + ' ' + tc.abnormal ]),
+							E('span', { 'class': 'cf-site-disabled' }, [ _('Site Disabled') + ' ' + tc.disabled ])
+						]));
+				})(),
 				card('cf-stat-wide ' + ((sites && sites.abnormal > 0) ? 'warn' : 'ok'), _('Sites'),
 					E('span', { 'class': 'cf-site-running' }, [
 						_('Running') + ' ' + (sites ? sites.running : '—')

@@ -42,10 +42,11 @@ function pickFile(accept) {
 	});
 }
 
-function loginFlow(section_id) {
+function loginFlow(section_id, force) {
 	let timer = null;
 	let closed = false;
 	let tries = 0;
+	let sawUrl = false;
 
 	const linkBox = E('div', { 'class': 'cf-login-box' });
 	const stateEl = E('p', {}, [ _('Waiting for authorization...') ]);
@@ -63,17 +64,33 @@ function loginFlow(section_id) {
 		ui.hideModal();
 	}
 
+	function reauthorize() {
+		stop();
+		ui.hideModal();
+		loginFlow(section_id, '1');
+	}
+
 	function update(st) {
 		if (closed)
 			return;
 
-		if (st && st.url && !linkBox.firstChild)
-			linkBox.appendChild(E('a', { 'href': st.url, 'target': '_blank', 'rel': 'noopener' }, [ st.url ]));
+		if (st && st.url) {
+			sawUrl = true;
+
+			if (!linkBox.firstChild)
+				linkBox.appendChild(E('a', { 'href': st.url, 'target': '_blank', 'rel': 'noopener' }, [ st.url ]));
+		}
 
 		stateEl.textContent = (st && st.message) ? st.message : _('Waiting for authorization...');
 
 		if (st && st.state === 'done') {
 			stop();
+
+			if (!sawUrl) {
+				stateEl.textContent = _('Already authorized, cert.pem exists.');
+				return;
+			}
+
 			ui.hideModal();
 			location.reload();
 		}
@@ -90,11 +107,15 @@ function loginFlow(section_id) {
 		linkBox,
 		stateEl,
 		E('div', { 'class': 'right' }, [
-			E('button', { 'class': 'btn cbi-button', 'click': dismiss }, [ _('Dismiss') ])
+			E('button', { 'class': 'btn cbi-button', 'click': dismiss }, [ _('Dismiss') ]),
+			E('button', { 'class': 'btn cbi-button cbi-button-apply', 'click': reauthorize }, [ _('Re-authorize') ])
 		])
 	]);
 
-	cfApi.action('login_start', { section: section_id, force: '0' }).then(function(r) {
+	cfApi.action('login_start', {
+		section: section_id,
+		force: force ? '1' : '0'
+	}).then(function(r) {
 		if (!r || !r.ok) {
 			stop();
 			ui.hideModal();
@@ -103,6 +124,9 @@ function loginFlow(section_id) {
 		}
 
 		update(r);
+
+		if (closed || r.state === 'done')
+			return;
 
 		timer = setInterval(function() {
 			if (++tries > 120) {
@@ -116,10 +140,18 @@ function loginFlow(section_id) {
 
 return view.extend({
 	load: function() {
-		return uci.load('cloudflared');
+		const view = this;
+
+		return Promise.all([
+			uci.load('cloudflared'),
+			cfApi.action('tunnel_status', {})
+		]).then(function(res) {
+			view._tunnelStatus = (res[1] && res[1].status) || {};
+		});
 	},
 
 	render: function() {
+		const view = this;
 		const map = new form.Map('cloudflared', _('Cloudflared Tunnels'),
 			_('Each tunnel has its own domain, credentials and config.yml.') + ' ' + _('Save only stores changes; Save & Apply rebuilds config and restarts the service.'));
 
@@ -158,6 +190,26 @@ return view.extend({
 		o.default = '1';
 		o.rmempty = false;
 		o.editable = true;
+
+		o = s.option(form.DummyValue, '_state', _('Status'));
+		o.modalonly = false;
+		o.textvalue = function(section_id) {
+			const st = view._tunnelStatus ? view._tunnelStatus[section_id] : null;
+
+			if (!st)
+				return E('span', {}, [ '—' ]);
+
+			const state = st.state;
+
+			if (state === 'running')
+				return E('span', { 'class': 'cf-site-running' }, [ '● ' + _('Running') ]);
+			if (state === 'pending')
+				return E('span', { 'class': 'cf-site-pending' }, [ '● ' + _('Pending hot reload') ]);
+			if (state === 'disabled')
+				return E('span', { 'class': 'cf-site-disabled' }, [ '● ' + _('Inactive') ]);
+
+			return E('span', { 'class': 'cf-site-abnormal' }, [ '● ' + _('Abnormal') ]);
+		};
 
 		o = s.option(form.DummyValue, '_quick', _('Actions'));
 		o.modalonly = false;
@@ -263,18 +315,32 @@ return view.extend({
 		o.inputstyle = 'action';
 		o.modalonly = true;
 		o.onclick = function(ev, section_id) {
-			loginFlow(section_id);
+			loginFlow(section_id, '0');
 		};
 
 		o = s.option(form.Button, '_create', _('Create Tunnel'));
 		o.inputstyle = 'apply';
 		o.modalonly = true;
 		o.onclick = function(ev, section_id) {
+			if (!uci.get('cloudflared', section_id)) {
+				showResult(_('Create Tunnel'), _('Save this tunnel first, then create it.'));
+				return;
+			}
+
 			const name = siblingValue(this.section, section_id, 'name');
+			const existingId = uci.get('cloudflared', section_id, 'tunnel_id') || '';
+
+			if (existingId && !confirm(_('This tunnel already has an ID. Creating a new tunnel will replace it. Continue?')))
+				return;
+
 			if (!confirm(_('Create a Cloudflare tunnel for this entry?')))
 				return;
 
-			cfApi.action('tunnel_create', { section: section_id, name: name }).then(function(r) {
+			cfApi.action('tunnel_create', {
+				section: section_id,
+				name: name,
+				force: existingId ? '1' : '0'
+			}).then(function(r) {
 				if (!r || !r.ok)
 					failResult(_('Create Tunnel'), r);
 				else
