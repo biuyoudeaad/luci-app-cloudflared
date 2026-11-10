@@ -209,7 +209,7 @@ cmd_status() {
 cmd_login_start() {
 	local section="${1:-}"
 	local force="${2:-0}"
-	local bin cert dir log status home pid exitfile started certbak
+	local bin cert dir log status home pid exitfile started certbak pidfile oldpid started_file started_ts now_ts
 
 	[ -n "$section" ] || { cf_err "missing section"; return 1; }
 	tunnel_exists "$section" || { cf_err "unknown section: $section"; return 1; }
@@ -225,12 +225,65 @@ cmd_login_start() {
 	mkdir -p "$dir" "$home"
 
 	if [ -f "$cert" ] && [ "$force" != "1" ]; then
+		# Make the resolved certificate explicit so later tunnel creation
+		# always finds the same file.
+		cf_set "$section" cert_path "$cert"
+		cf_commit
 		status_write "$status" \
 			"state=done" \
 			"url=" \
 			"message=cert.pem already exists"
 		cat "$status"
 		return 0
+	fi
+
+	# If the current login session already produced a cert, reuse it instead of
+	# starting another login (which would create another Cloudflare token).
+	if [ "$force" != "1" ] && [ -f "$home/.cloudflared/cert.pem" ]; then
+		mkdir -p "$(dirname "$cert")"
+		cf_fix_dir_perms "$(dirname "$cert")"
+		cp -f "$home/.cloudflared/cert.pem" "$cert" || {
+			cf_err "failed to install cert to $cert"
+			return 1
+		}
+		chmod 600 "$cert" 2>/dev/null || true
+		cf_fix_file_perms "$cert"
+		cf_set "$section" cert_path "$cert"
+		cf_commit
+		pid="$(cat "$CF_STATE_DIR/login-$section.pid" 2>/dev/null)"
+		[ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+		status_write "$status" \
+			"state=done" \
+			"url=" \
+			"cert=$cert" \
+			"message=Authorized"
+		cat "$status"
+		return 0
+	fi
+
+	# Debounce rapid Re-authorize clicks for the same tunnel.
+	started_file="$CF_STATE_DIR/login-$section.started"
+	if [ "$force" = "1" ] && [ -f "$started_file" ] && [ -f "$status" ]; then
+		started_ts="$(cat "$started_file" 2>/dev/null)"
+		case "$started_ts" in ''|*[!0-9]*) started_ts=0 ;; esac
+		now_ts="$(date +%s)"
+		if [ "$started_ts" -gt 0 ] && [ "$((now_ts - started_ts))" -lt 10 ]; then
+			cat "$status"
+			return 0
+		fi
+	fi
+
+	pidfile="$CF_STATE_DIR/login-$section.pid"
+	if [ -f "$pidfile" ]; then
+		oldpid="$(cat "$pidfile" 2>/dev/null)"
+		if [ -n "$oldpid" ] && kill -0 "$oldpid" 2>/dev/null; then
+			if [ "$force" != "1" ] && [ -f "$status" ]; then
+				cat "$status"
+				return 0
+			fi
+			kill "$oldpid" 2>/dev/null || true
+			rm -f "$pidfile"
+		fi
 	fi
 
 	if [ -f "$cert" ]; then
@@ -289,11 +342,13 @@ cmd_login_status() {
 
 	if [ -n "$src" ]; then
 		mkdir -p "$(dirname "$cert")"
+		cf_fix_dir_perms "$(dirname "$cert")"
 		cp -f "$src" "$cert" || {
 			cf_err "failed to install cert to $cert"
 			return 1
 		}
 		chmod 600 "$cert" 2>/dev/null || true
+		cf_fix_file_perms "$cert"
 		cf_set "$section" cert_path "$cert"
 		cf_commit
 		[ -n "$pid" ] && kill "$pid" 2>/dev/null || true
@@ -352,8 +407,10 @@ cmd_install_cert() {
 
 	cert="$(cf_tunnel_cert_target "$section")"
 	mkdir -p "$(dirname "$cert")"
+	cf_fix_dir_perms "$(dirname "$cert")"
 	cp -f "$src" "$cert" || return 1
 	chmod 600 "$cert" 2>/dev/null || true
+	cf_fix_file_perms "$cert"
 
 	cf_set "$section" cert_path "$cert"
 	cf_commit
@@ -361,32 +418,139 @@ cmd_install_cert() {
 	printf 'OK cert=%s\n' "$cert"
 }
 
+tunnel_find_id() {
+	local bin="$1" cert="$2" name="$3" home="$4"
+	local info_json list_json id
+
+	info_json="$(HOME="$home" "$bin" tunnel --origincert "$cert" info "$name" -o json 2>/dev/null)"
+	id="$(printf '%s' "$info_json" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+	[ -n "$id" ] || id="$(printf '%s' "$info_json" | sed -n 's/^[[:space:]]*[Ii][Dd]:[[:space:]]*//p' | head -n 1)"
+	if [ -z "$id" ]; then
+		list_json="$(HOME="$home" "$bin" tunnel --origincert "$cert" list --show-deleted -o json 2>/dev/null)"
+		id="$(printf '%s' "$list_json" | tr -d '\n' | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"'"$name"'"[^}]*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+		[ -n "$id" ] || id="$(printf '%s' "$list_json" | tr -d '\n' | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)"[^}]*"name"[[:space:]]*:[[:space:]]*"'"$name"'".*/\1/p' | head -n 1)"
+	fi
+	printf '%s' "$id"
+}
+
+tunnel_delete_remote() {
+	local bin="$1" cert="$2" section="$3" tunnel_id="$4" home="$5"
+	local out code payload
+
+	[ -n "$tunnel_id" ] || return 1
+
+	out="$(HOME="$home" "$bin" tunnel --origincert "$cert" delete -f "$tunnel_id" 2>&1)"
+	code=$?
+	if [ "$code" -ne 0 ]; then
+		# release active connections, then retry once
+		payload='{"name":"cloudflared","instance":"tunnel_'"$section"'"}'
+		ubus call service delete "$payload" >/dev/null 2>&1
+		sleep 1
+		out="$(HOME="$home" "$bin" tunnel --origincert "$cert" delete -f "$tunnel_id" 2>&1)"
+		code=$?
+	fi
+
+	if [ "$code" -ne 0 ] && ! printf '%s' "$out" | grep -qi 'not found'; then
+		cf_err "Failed to delete existing Cloudflare tunnel: $out"
+		return 1
+	fi
+
+	cf_log "Deleted existing Cloudflare tunnel '$tunnel_id'"
+	return 0
+}
+
 cmd_tunnel_create() {
 	local section="${1:-}"
 	local reqname="${2:-}"
-	local bin cert dir home out uuid creds credpath name
+	local force_delete="${3:-0}"
+	local remote_id="${4:-0}"
+	local replace="${5:-0}"
+	local bin cert target dir home out uuid creds credpath name existing_id local_tid lockfile
 
 	[ -n "$section" ] || { cf_err "missing section"; return 1; }
 	tunnel_exists "$section" || { cf_err "unknown section: $section"; return 1; }
 
 	bin="$(cf_find_binary)" || { cf_err "cloudflared binary not found"; return 1; }
 	cert="$(cf_cert_path "$section")"
+	if [ ! -f "$cert" ]; then
+		# A stale global cert_path must not hide a valid per-tunnel cert.
+		target="$(cf_tunnel_cert_target "$section")"
+		if [ -f "$target" ]; then
+			cert="$target"
+			cf_set "$section" cert_path "$cert"
+			cf_commit
+		fi
+	fi
 	[ -f "$cert" ] || {
-		cf_err "cert.pem not found; click Authorize first"
+		cf_err "cert.pem not found: $cert; click Authorize first"
 		return 1
 	}
 
 	name="$reqname"
 	[ -n "$name" ] || name="$(cf_get "$section" name)"
-	[ -n "$name" ] || name="tunnel-$(date +%s)"
+	[ -n "$name" ] || name="tunnel-$section"
 
 	cf_log "Creating Cloudflare tunnel '$name' (section $section)"
 	dir="$(cf_tunnel_dir "$section")"
 	home="$dir/.create-home"
 	mkdir -p "$dir" "$home/.cloudflared" || return 1
 
+	# Serialize create/replace requests for the same UCI section. A double
+	# click must not create two remote tunnels (and two tokens).
+	lockfile="$CF_STATE_DIR/tunnel-create-$section.lock"
+	exec 9>"$lockfile"
+	flock -w 20 9 || {
+		cf_err "Another tunnel create operation is running for section $section"
+		rm -rf "$home"
+		return 1
+	}
+	trap 'flock -u 9 2>/dev/null' EXIT
+
+	local_tid="$(cf_get "$section" tunnel_id)"
+	if [ -n "$local_tid" ] && [ "$replace" != "1" ]; then
+		printf 'ok=1\ntunnel_id=%s\nname=%s\nalready_created=1\n' \
+			"$local_tid" "$name"
+		rm -rf "$home"
+		return 0
+	fi
+
+	if [ "$force_delete" != "1" ] && [ "$force_delete" != "--force-delete" ]; then
+		existing_id="$(tunnel_find_id "$bin" "$cert" "$name" "$home")"
+		if [ -n "$existing_id" ]; then
+			printf 'exists=1\ntunnel_id=%s\nname=%s\nmessage=tunnel with name already exists\n' \
+				"$existing_id" "$name"
+			rm -rf "$home"
+			return 1
+		fi
+	fi
+
+	if [ "$force_delete" = "1" ] || [ "$force_delete" = "--force-delete" ]; then
+		existing_id="$remote_id"
+		case "$existing_id" in
+			0|"") existing_id="$(tunnel_find_id "$bin" "$cert" "$name" "$home")" ;;
+		esac
+		if [ -n "$existing_id" ]; then
+			tunnel_delete_remote "$bin" "$cert" "$section" "$existing_id" "$home" || {
+				rm -rf "$home"
+				return 1
+			}
+		fi
+	fi
+
 	out="$(HOME="$home" "$bin" tunnel --origincert "$cert" create "$name" 2>&1)"
 	if [ $? -ne 0 ]; then
+		if printf '%s' "$out" | grep -qi 'already exists'; then
+			existing_id="$(tunnel_find_id "$bin" "$cert" "$name" "$home")"
+			if [ "$force_delete" = "1" ] || [ "$force_delete" = "--force-delete" ]; then
+				rm -rf "$home"
+				cf_err "Tunnel '$name' still exists after force delete: $out"
+				return 1
+			fi
+			printf 'exists=1\ntunnel_id=%s\nname=%s\nmessage=%s\n' \
+				"$existing_id" "$name" "$out"
+			rm -rf "$home"
+			return 1
+		fi
 		rm -rf "$home"
 		cf_err "$out"
 		return 1
@@ -418,8 +582,11 @@ cmd_tunnel_create() {
 	fi
 
 	mkdir -p "$dir"
+	cf_fix_dir_perms "$dir"
 	if cp -f "$creds" "$dir/$uuid.json" 2>/dev/null; then
 		creds="$dir/$uuid.json"
+		chmod 600 "$creds" 2>/dev/null || true
+		cf_fix_file_perms "$creds"
 	fi
 	rm -rf "$home"
 
@@ -455,9 +622,11 @@ cmd_install_credentials() {
 
 	dir="$(cf_tunnel_dir "$section")"
 	mkdir -p "$dir"
+	cf_fix_dir_perms "$dir"
 	dest="$dir/$tid.json"
 	cp -f "$src" "$dest" || return 1
 	chmod 600 "$dest" 2>/dev/null || true
+	cf_fix_file_perms "$dest"
 
 	cf_set "$section" tunnel_id "$tid"
 	cf_set "$section" credentials_file "$dest"

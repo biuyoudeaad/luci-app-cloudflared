@@ -10,6 +10,7 @@ start_service() {
 	local bin section
 
 	mkdir -p "$CF_LOG_DIR" 2>/dev/null
+	cf_fix_permissions 2>/dev/null || true
 	bin="$(cf_find_binary)" || {
 		cf_log "ERROR: cloudflared binary not found"
 		return 1
@@ -39,8 +40,15 @@ start_one() {
 
 	cf_log "Starting tunnel '${name:-$section}'"
 	procd_open_instance "tunnel_$section"
-	procd_set_param command /bin/sh -c 'exec "$0" --config "$1" tunnel run >> "$2" 2>&1' \
+	procd_set_param command /bin/sh -c 'exec "$0" --no-autoupdate --config "$1" tunnel run >> "$2" 2>&1' \
 		"$bin" "$cfg" "$CF_CORE_LOG"
+	procd_set_param env HOME="$CF_STATE_DIR"
+	if cf_run_user_exists; then
+		procd_set_param user "$CF_RUN_USER"
+		procd_set_param group "$CF_RUN_USER"
+	else
+		cf_log "WARN: user $CF_RUN_USER not found, running core as root"
+	fi
 	procd_set_param respawn
 	procd_set_param stdout 1
 	procd_set_param stderr 1

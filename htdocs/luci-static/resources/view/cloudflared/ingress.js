@@ -6,12 +6,14 @@
 'require dom';
 'require poll';
 'require cloudflared.api as cfApi';
+'require cloudflared.result as cfResult';
 'require cloudflared.service as cfService';
 
 const TCP_RE = /^(http|https|tcp|ssh|rdp|smb)$/;
 const HTTP_RE = /^(http|https|unix)$/;
 const CONNECT_RE = /^(http|https|tcp|ssh|rdp|smb|unix)$/;
 const TLS_RE = /^https$/;
+const PARALLEL_LIMIT = 20;
 
 function savedService(section_id) {
 	return uci.get('cloudflared', section_id, 'service') || '';
@@ -19,6 +21,181 @@ function savedService(section_id) {
 
 function savedParts(section_id) {
 	return cfService.parseService(savedService(section_id));
+}
+
+function dnsSkipLabel(code) {
+	switch (code) {
+	case 'missing_hostname':
+		return _('No hostname configured');
+	case 'missing':
+		return _('Missing API token, tunnel ID or domain');
+	case 'query_failed':
+		return _('Unable to query DNS records');
+	case 'not_found':
+		return _('No DNS record points to this tunnel');
+	default:
+		return code;
+	}
+}
+
+function openDeleteIngress(section_id) {
+	const hostname = uci.get('cloudflared', section_id, 'hostname') || '';
+	const dnsBox = E('input', {
+		'type': 'checkbox',
+		'id': 'cf-ingress-delete-dns',
+		'checked': hostname ? '' : null,
+		'disabled': hostname ? null : ''
+	});
+
+	const deleteBtn = E('button', {
+		'class': 'btn cbi-button cbi-button-negative important',
+		'click': function(ev) {
+			const btn = ev.currentTarget;
+			btn.disabled = true;
+			btn.classList.add('spinning');
+
+			cfApi.action('ingress_delete', {
+				section: section_id,
+				delete_dns: dnsBox.checked ? '1' : '0'
+			}).then(function(r) {
+				btn.disabled = false;
+				btn.classList.remove('spinning');
+
+				if (!r || !r.ok) {
+					ui.showModal(_('Delete Ingress Rule'), [
+						E('p', {}, [ cfApi.message(r) ]),
+						E('div', { 'class': 'right' }, [
+							E('button', { 'class': 'btn cbi-button', 'click': ui.hideModal }, [ _('Dismiss') ])
+						])
+					]);
+					return;
+				}
+
+				ui.hideModal();
+
+				const parts = [ _('Ingress rule deleted') ];
+				if (r.dns_deleted)
+					parts.push(_('DNS record deleted'));
+				if (r.dns_failed)
+					parts.push(_('DNS record deletion failed'));
+				if (r.dns_skipped)
+					parts.push(_('DNS record not deleted: %s').format(dnsSkipLabel(r.dns_skipped)));
+				if (r.config === false)
+					parts.push(_('Config regeneration failed. Check the log.'));
+				else if (r.restarted === false)
+					parts.push(_('Service restart failed. Check the log.'));
+
+				const warn = r.dns_failed || r.dns_skipped ||
+					r.config === false || r.restarted === false;
+
+				if (cfResult.store('cf-ingress-delete-result', parts, warn ? 'warning' : 'info')) {
+					location.reload();
+				}
+				else {
+					ui.addNotification(null, E('p', {}, [ parts.join(' · ') ]),
+						warn ? 'warning' : 'info');
+					setTimeout(function() { location.reload(); }, 10000);
+				}
+			});
+		}
+	}, [ _('Delete') ]);
+
+	ui.showModal(_('Delete Ingress Rule'), [
+		E('p', {}, [ _('Delete the local ingress rule for "%s"?').format(hostname || section_id) ]),
+		E('label', { 'class': 'cf-option-row', 'for': 'cf-ingress-delete-dns' }, [
+			dnsBox,
+			E('span', {}, [
+				E('strong', {}, [ _('Delete the matching remote DNS record') ]),
+				E('div', { 'class': 'cf-note' }, [
+					_('Removes the Cloudflare DNS record that points this hostname to the tunnel.')
+				])
+			])
+		]),
+		E('p', { 'class': 'cf-note' }, [ _('This action takes effect immediately.') ]),
+		E('div', { 'class': 'right' }, [
+			E('button', { 'class': 'btn cbi-button', 'click': ui.hideModal }, [ _('Cancel') ]),
+			' ',
+			deleteBtn
+		])
+	]);
+}
+
+function openDeleteSelectedIngress(section_ids, toolbarButton) {
+	const dnsBox = E('input', {
+		'type': 'checkbox',
+		'id': 'cf-ingress-delete-selected-dns',
+		'checked': ''
+	});
+
+	ui.showModal(_('Delete Selected Ingress Rules'), [
+		E('p', {}, [ _('Delete %s selected ingress rules?').format(section_ids.length) ]),
+		E('label', { 'class': 'cf-option-row', 'for': 'cf-ingress-delete-selected-dns' }, [
+			dnsBox,
+			E('span', {}, [
+				E('strong', {}, [ _('Delete matching remote DNS records') ]),
+				E('div', { 'class': 'cf-note' }, [
+					_('Removes matching Cloudflare DNS records before deleting the local rules.')
+				])
+			])
+		]),
+		E('div', { 'class': 'right' }, [
+			E('button', { 'class': 'btn cbi-button', 'click': ui.hideModal }, [ _('Cancel') ]),
+			' ',
+			E('button', {
+				'class': 'btn cbi-button cbi-button-negative important',
+				'click': function(ev) {
+					const button = ev.currentTarget;
+					setBusyButton(button, true);
+					setBusyButton(toolbarButton, true);
+
+					section_ids.reduce(function(chain, section) {
+						return chain.then(function(results) {
+							return cfApi.action('ingress_delete', {
+								section: section,
+								delete_dns: dnsBox.checked ? '1' : '0'
+							}).then(function(r) {
+								results.push(r || { ok: false, message: _('Request failed') });
+								return results;
+							}, function(err) {
+								results.push({ ok: false, message: String(err) });
+								return results;
+							});
+						});
+					}, Promise.resolve([])).then(function(results) {
+						setBusyButton(button, false);
+						setBusyButton(toolbarButton, false);
+						ui.hideModal();
+						const deleted = results.filter(function(r) { return r && r.ok; }).length;
+						const failed = results.length - deleted;
+						const failedDetails = results.filter(function(r) {
+							return !r || !r.ok;
+						}).map(function(r, index) {
+							const section = section_ids[index] || '';
+							const hostname = (r && r.hostname) || section;
+							return hostname + ': ' + ((r && r.message) || _('Request failed'));
+						});
+						const dnsDeleted = results.reduce(function(n, r) { return n + (r && r.dns_deleted || 0); }, 0);
+						const dnsFailed = results.reduce(function(n, r) { return n + (r && r.dns_failed || 0); }, 0);
+						const parts = [ _('Ingress rules deleted: %s').format(deleted) ];
+						if (dnsDeleted)
+							parts.push(_('DNS records deleted: %s').format(dnsDeleted));
+						if (dnsFailed)
+							parts.push(_('DNS record deletion failed: %s').format(dnsFailed));
+						if (failed)
+							parts.push(_('Ingress rules failed: %s').format(failed));
+						failedDetails.forEach(function(detail) { parts.push(detail); });
+
+						if (cfResult.store('cf-ingress-delete-result', parts, failed || dnsFailed ? 'warning' : 'info'))
+							location.reload();
+						else {
+							ui.addNotification(null, E('p', {}, [ parts.join(' · ') ]), failed || dnsFailed ? 'warning' : 'info');
+							setTimeout(function() { location.reload(); }, 10000);
+						}
+					});
+				}
+			}, [ _('Delete') ])
+		])
+	]);
 }
 
 function widgetValue(sectionObj, section_id, name) {
@@ -364,6 +541,61 @@ function dnsText(state) {
 	return E('span', {}, [ '—' ]);
 }
 
+function dnsFailureMessage(msg) {
+	if (!msg)
+		return '';
+
+	return msg
+		.replace(/API: missing_token/g, 'API: ' + _('API token is not configured'))
+		.replace(/API: missing_tunnel_id/g, 'API: ' + _('Tunnel ID is missing'))
+		.replace(/API: zone_not_found/g, 'API: ' + _('DNS zone not found'))
+		.replace(/API: record_exists:[^ ]*/g, 'API: ' + _('DNS record exists with a different target'))
+		.replace(/API: api_failed/g, 'API: ' + _('Cloudflare API request failed'));
+}
+
+function showDnsSummary(results, title) {
+	results = results || [];
+
+	let created = 0;
+	let exists = 0;
+	let failed = 0;
+	const failures = [];
+
+	results.forEach(function(r) {
+		if (!r || !r.ok) {
+			if (r && r.disabled)
+				return;
+			failed++;
+			if (r && r.message)
+				failures.push(r.message);
+			return;
+		}
+
+		created += r.created_count || 0;
+		exists += r.exists_count || 0;
+		failed += r.failed_count || 0;
+
+		if (r.failed_messages) {
+			for (const host in r.failed_messages)
+				failures.push(host + ' — ' + dnsFailureMessage(r.failed_messages[host]));
+		}
+	});
+
+	ui.showModal(title || _('DNS sync result'), [
+		E('p', {}, [
+			_('Created: %s').format(created) + ' · ' +
+			_('Existing: %s').format(exists) + ' · ' +
+			_('Failed: %s').format(failed)
+		]),
+		failures.length ? E('ul', {}, failures.map(function(line) {
+			return E('li', {}, [ line ]);
+		})) : '',
+		E('div', { 'class': 'right' }, [
+			E('button', { 'class': 'btn cbi-button', 'click': ui.hideModal }, [ _('Dismiss') ])
+		])
+	]);
+}
+
 return view.extend({
 	load: function() {
 		return uci.load('cloudflared');
@@ -371,14 +603,81 @@ return view.extend({
 
 	render: function() {
 		const view = this;
+		const selected = view._ingressSelected || (view._ingressSelected = {});
+		let updateSelectAll = function() {};
+
+		function syncDnsIngress(section_id, button) {
+			const force = button.getAttribute('data-force-sync') === '1';
+			setBusyButton(button, true);
+
+			return cfApi.action('dns_sync', {
+				ingress: section_id,
+				force_sync: force ? '1' : '0'
+			}).then(function(r) {
+				setBusyButton(button, false);
+
+				const cell = document.getElementById('cf-dns-' + section_id);
+				if (cell) {
+					if (r && (r.created_count || r.exists_count))
+						dom.content(cell, [ dnsText('synced') ]);
+					else if (r && r.disabled)
+						dom.content(cell, [ dnsText('disabled') ]);
+					else
+						dom.content(cell, [ dnsText('pending') ]);
+				}
+
+				showDnsSummary([ r ], _('DNS sync result'));
+				return r;
+			}, function(err) {
+				setBusyButton(button, false);
+				showDnsSummary([ { ok: false, message: String(err) } ], _('DNS sync result'));
+			});
+		}
+
 		const map = new form.Map('cloudflared', _('Ingress Rules'), _('Map public hostnames to local services.') + ' ' + _('Save only stores changes; Save & Apply rebuilds config and restarts the service.'));
 
 		const s = map.section(form.GridSection, 'ingress', _('Ingress Rules'));
 		s.anonymous = true;
 		s.addremove = true;
 		s.nodescriptions = true;
+		s.renderSectionPlaceholder = function() {
+			return E('span', { 'aria-hidden': 'true' });
+		};
 
-		let o = s.option(form.ListValue, 'tunnel', _('Tunnel'));
+		let o = s.option(form.DummyValue, '_select', '');
+		o.modalonly = false;
+		const selectAll = E('input', {
+			'type': 'checkbox',
+			'id': 'cf-select-all-ingress',
+			'title': _('Select all'),
+			'aria-label': _('Select all')
+		});
+		o.title = selectAll;
+			o.textvalue = function(section_id) {
+			const creates = uci.state && uci.state.creates && uci.state.creates.cloudflared;
+			const selectable = !(creates && creates[section_id]);
+
+			if (selected[section_id] === undefined)
+				selected[section_id] = false;
+			if (!selectable)
+				selected[section_id] = false;
+
+			const cb = E('input', {
+				'type': 'checkbox',
+				'data-select-section': section_id,
+				'checked': selected[section_id] ? '' : null,
+				'disabled': selectable ? null : ''
+			});
+			cb.addEventListener('click', function(ev) { ev.stopPropagation(); });
+			cb.addEventListener('change', function(ev) {
+				ev.stopPropagation();
+				selected[section_id] = cb.checked;
+				updateSelectAll();
+			});
+			return cb;
+		};
+
+		o = s.option(form.ListValue, 'tunnel', _('Tunnel'));
 		o.editable = true;
 		uci.sections('cloudflared', 'tunnel', function(sec) {
 			o.value(sec['.name'], sec.name || sec['.name']);
@@ -442,6 +741,47 @@ return view.extend({
 		o.default = '1';
 		o.rmempty = false;
 		o.editable = true;
+
+		o = s.option(form.DummyValue, '_dns_sync', _('Sync DNS'));
+		o.modalonly = false;
+		o.textvalue = function(section_id) {
+			const creates = uci.state && uci.state.creates && uci.state.creates.cloudflared;
+			const enabled = (uci.get('cloudflared', section_id, 'enabled') || '1') !== '0';
+			const hostname = uci.get('cloudflared', section_id, 'hostname') || '';
+
+			const btn = E('button', {
+				'type': 'button',
+				'class': 'btn cbi-button cf-dns-sync-button',
+				'click': function(ev) {
+					ev.preventDefault();
+					ev.stopPropagation();
+					if (!btn.disabled)
+						syncDnsIngress(section_id, btn);
+				}
+			}, [ _('Sync DNS') ]);
+			btn.disabled = !enabled || hostname === '' || !!(creates && creates[section_id]);
+			return btn;
+		};
+
+		o = s.option(form.DummyValue, '_dns_force', '');
+		o.modalonly = false;
+		o.textvalue = function(section_id) {
+			const creates = uci.state && uci.state.creates && uci.state.creates.cloudflared;
+			const hostname = uci.get('cloudflared', section_id, 'hostname') || '';
+			const btn = E('button', {
+				'type': 'button',
+				'class': 'btn cbi-button cbi-button-negative cf-dns-force-button',
+				'data-force-sync': '1',
+				'click': function(ev) {
+					ev.preventDefault();
+					ev.stopPropagation();
+					if (!btn.disabled)
+						syncDnsIngress(section_id, btn);
+				}
+			}, [ _('Force Sync') ]);
+			btn.disabled = hostname === '' || !!(creates && creates[section_id]);
+			return btn;
+		};
 
 		o = s.option(TestValue, '_test', _('Check'));
 		o.editable = true;
@@ -653,6 +993,7 @@ return view.extend({
 				saved[name] = !!visible;
 				try { localStorage.setItem(COLUMN_KEY, JSON.stringify(saved)); } catch (e) {}
 				applyColumns();
+				setupSelectAll();
 			}
 
 			function tableElement() {
@@ -700,38 +1041,169 @@ return view.extend({
 				});
 			}
 
-			function checkAllIngress(button) {
-				const rows = dataRows();
+			function selectedIngressSections(requireHostname) {
 				const targets = [];
 
-				rows.forEach(function(row) {
-					const cb = row.querySelector('[data-name="enabled"] input[type="checkbox"]');
-					if (cb && !cb.checked)
+				dataRows().filter(function(row) {
+					return row.style.display !== 'none';
+				}).forEach(function(row) {
+					const sel = row.querySelector('[data-name="_select"] input[type="checkbox"]');
+					if (!sel || !sel.checked || sel.disabled)
 						return;
 
-					targets.push(row.id.substring('cbi-cloudflared-'.length));
+					if (requireHostname && !rowHostname(row))
+						return;
+
+					const section = row.getAttribute('data-sid') ||
+						row.getAttribute('data-section-id') || '';
+					if (section)
+						targets.push(section);
 				});
 
+				return targets;
+			}
+
+			function updateDnsCell(section, r) {
+				const cell = document.getElementById('cf-dns-' + section);
+				if (!cell)
+					return;
+
+				if (r && (r.created_count || r.exists_count))
+					dom.content(cell, [ dnsText('synced') ]);
+				else if (r && r.disabled)
+					dom.content(cell, [ dnsText('disabled') ]);
+				else
+					dom.content(cell, [ dnsText('pending') ]);
+			}
+
+			function runLimited(targets, worker, limit) {
+				return new Promise(function(resolve) {
+					let index = 0;
+					let active = 0;
+
+					function startNext() {
+						while (active < limit && index < targets.length) {
+							const target = targets[index++];
+							active++;
+
+							Promise.resolve()
+								.then(function() { return worker(target); })
+								.then(done, done);
+						}
+
+						if (active === 0 && index >= targets.length)
+							resolve();
+					}
+
+					function done() {
+						active--;
+						startNext();
+					}
+
+					startNext();
+				});
+			}
+
+			function syncSelectedDns(button) {
+				const targets = selectedIngressSections(true);
 				if (!targets.length) {
-					ui.addNotification(null, E('p', {}, [ _('No enabled sites to check.') ]), 'warning');
+					ui.addNotification(null, E('p', {}, [ _('No selected sites to sync.') ]), 'warning');
 					return;
 				}
 
 				setBusyButton(button, true);
-				let index = 0;
+				const results = [];
 
-				function next() {
-					if (index >= targets.length) {
-						setBusyButton(button, false);
-						return;
-					}
+				runLimited(targets, function(section) {
+					return cfApi.action('dns_sync', { ingress: section }).then(function(r) {
+						results.push(r);
+						updateDnsCell(section, r);
+					}, function(err) {
+						results.push({ ok: false, message: String(err) });
+					});
+				}, PARALLEL_LIMIT).then(function() {
+					setBusyButton(button, false);
+					showDnsSummary(results, _('DNS sync result'));
+				});
+			}
 
-					const section = targets[index++];
-					runIngressTest(section, document.getElementById('cf-test-' + section))
-						.then(next, next);
+			function checkAllIngress(button) {
+				const targets = selectedIngressSections(true);
+
+				if (!targets.length) {
+					ui.addNotification(null, E('p', {}, [ _('No selected sites to check.') ]), 'warning');
+					return;
 				}
 
-				next();
+				setBusyButton(button, true);
+				runLimited(targets, function(section) {
+					return runIngressTest(section, document.getElementById('cf-test-' + section));
+				}, PARALLEL_LIMIT).then(function() {
+					setBusyButton(button, false);
+				});
+			}
+
+			function deleteSelectedIngress(button) {
+				const targets = selectedIngressSections(false);
+				if (!targets.length) {
+					ui.addNotification(null, E('p', {}, [ _('No selected sites to delete.') ]), 'warning');
+					return;
+				}
+
+				openDeleteSelectedIngress(targets, button);
+			}
+
+			updateSelectAll = function() {
+				const all = document.getElementById('cf-select-all-ingress');
+				if (!all)
+					return;
+
+				let total = 0;
+				let checked = 0;
+
+				dataRows().filter(function(row) {
+					return row.style.display !== 'none';
+				}).forEach(function(row) {
+					const cb = row.querySelector('[data-name="_select"] input[type="checkbox"]');
+					if (!cb || cb.disabled)
+						return;
+					total++;
+					if (cb.checked)
+						checked++;
+				});
+
+				all.checked = total > 0 && checked === total;
+				all.indeterminate = checked > 0 && checked < total;
+			};
+
+			function bindSelectAll() {
+				const all = document.getElementById('cf-select-all-ingress');
+				if (!all || all._cfBound)
+					return;
+
+				all._cfBound = true;
+				all.addEventListener('click', function(ev) { ev.stopPropagation(); });
+				all.addEventListener('change', function(ev) {
+					ev.stopPropagation();
+					const want = all.checked;
+
+					dataRows().filter(function(row) {
+						return row.style.display !== 'none';
+					}).forEach(function(row) {
+						const rowCb = row.querySelector('[data-name="_select"] input[type="checkbox"]');
+						if (!rowCb || rowCb.disabled)
+							return;
+						rowCb.checked = want;
+						selected[row.id.substring('cbi-cloudflared-'.length)] = want;
+					});
+
+					updateSelectAll();
+				});
+			}
+
+			function setupSelectAll() {
+				bindSelectAll();
+				updateSelectAll();
 			}
 
 			function setupColumns() {
@@ -772,21 +1244,39 @@ return view.extend({
 					}, [ _('Reset') ]);
 					menu.appendChild(reset);
 
-					const checkAll = E('button', {
+					const dnsAll = E('button', {
+						'type': 'button',
+						'class': 'btn cbi-button',
+						'click': function(ev) {
+							ev.stopPropagation();
+							syncSelectedDns(ev.currentTarget);
+						}
+					}, [ _('Sync Selected DNS') ]);
+
+				const checkAll = E('button', {
 						'type': 'button',
 						'class': 'btn cbi-button',
 						'click': function(ev) {
 							ev.stopPropagation();
 							checkAllIngress(ev.currentTarget);
 						}
-					}, [ _('Check All') ]);
+				}, [ _('Check All') ]);
+
+				const deleteAll = E('button', {
+					'type': 'button',
+					'class': 'btn cbi-button cbi-button-negative',
+					'click': function(ev) {
+						ev.stopPropagation();
+						deleteSelectedIngress(ev.currentTarget);
+					}
+				}, [ _('Delete Selected') ]);
 
 					const btn = E('button', { 'type': 'button', 'class': 'btn cbi-button', 'click': function(ev) {
 						ev.stopPropagation();
 						menu.style.display = (menu.style.display === 'none' || menu.style.display === '') ? 'block' : 'none';
 					} }, [ _('Columns') ]);
 
-					bar = E('div', { 'class': 'cf-columns-toolbar' }, [ checkAll, btn, menu ]);
+				bar = E('div', { 'class': 'cf-columns-toolbar' }, [ dnsAll, checkAll, deleteAll, btn, menu ]);
 					menu.addEventListener('click', function(ev) { ev.stopPropagation(); });
 					document.addEventListener('click', function() { menu.style.display = 'none'; });
 
@@ -795,6 +1285,7 @@ return view.extend({
 				}
 
 				applyColumns();
+				setupSelectAll();
 			}
 
 			const tableState = view._ingressTableState ||
@@ -1037,6 +1528,7 @@ return view.extend({
 				}
 
 				applyTablePage(pagerBar);
+				setupSelectAll();
 			}
 
 			view._confirmOrphans = function() {
@@ -1068,6 +1560,23 @@ return view.extend({
 				});
 			};
 
+			view._syncEnabledTunnelDns = function() {
+				const tunnels = (uci.sections('cloudflared', 'tunnel') || [])
+					.map(function(tunnel) { return tunnel['.name']; });
+
+				return tunnels.reduce(function(chain, section) {
+					return chain.then(function(results) {
+						return cfApi.action('dns_sync', { section: section }).then(function(r) {
+							results.push(r);
+							return results;
+						}, function(err) {
+							results.push({ ok: false, message: String(err) });
+							return results;
+						});
+					});
+				}, Promise.resolve([]));
+			};
+
 			view._setupColumns = setupColumns;
 			view._setupIngressTools = setupIngressTools;
 			setupColumns();
@@ -1086,6 +1595,7 @@ return view.extend({
 			}
 
 			let warnedOrphans = false;
+			let warnedErrors = false;
 
 			function loadDns() {
 				cfApi.action('ingress_dns', {}).then(function(r) {
@@ -1101,6 +1611,31 @@ return view.extend({
 							_('Orphaned DNS (will be deleted on save)') + ': ' + r.orphaned.join(', ')
 						]), 'warning');
 					}
+
+					if (!warnedErrors && r && r.ok && r.errors) {
+						const lines = [];
+
+						for (const section in r.errors) {
+							const err = r.errors[section] || {};
+							const name = err.name || section;
+
+							if (err.code === 'missing_token')
+								lines.push(_('DNS status unavailable for %s: no API token configured.').format(name));
+							else if (err.code === 'missing_config')
+								lines.push(_('DNS status unavailable for %s: tunnel ID or domain is missing.').format(name));
+							else if (err.code === 'zone_failed')
+								lines.push(_('DNS status unavailable for %s: the API token cannot read zone %s. Grant Zone:Zone:Read and Zone:DNS:Read.').format(name, err.domain || ''));
+							else
+								lines.push(_('DNS status unavailable for %s: Cloudflare API request failed.').format(name));
+						}
+
+						if (lines.length) {
+							warnedErrors = true;
+							ui.addNotification(null, E('ul', {}, lines.map(function(line) {
+								return E('li', {}, [ line ]);
+							})), 'warning');
+						}
+					}
 				});
 			}
 
@@ -1111,6 +1646,27 @@ return view.extend({
 				loadDns();
 			}, 10);
 
+			node.addEventListener('click', function(ev) {
+				const btn = ev.target.closest ? ev.target.closest('.cbi-button-remove') : null;
+				if (!btn)
+					return;
+
+				const row = btn.closest('tr');
+				const section_id = row
+					? (row.getAttribute('data-sid') || row.getAttribute('data-section-id'))
+					: null;
+				const creates = uci.state && uci.state.creates && uci.state.creates.cloudflared;
+
+				// Unsaved rows only exist in the form state; let LuCI remove them.
+				if (!section_id || (creates && creates[section_id]))
+					return;
+
+				ev.preventDefault();
+				ev.stopImmediatePropagation();
+				openDeleteIngress(section_id);
+			}, true);
+
+			cfResult.consume(node, 'cf-ingress-delete-result');
 			return node;
 		});
 	},
@@ -1129,16 +1685,23 @@ return view.extend({
 	handleSaveApply: function(ev) {
 		const self = this;
 
-		const pre = (typeof(self._confirmOrphans) === 'function')
-			? self._confirmOrphans()
-			: Promise.resolve(true);
-
-		return pre.then(function(ok) {
+		return self.handleSave(ev).then(function() {
+			return (typeof(self._confirmOrphans) === 'function')
+				? self._confirmOrphans()
+				: true;
+		}).then(function(ok) {
 			if (!ok)
 				return null;
 
-			return self.handleSave(ev).then(function() {
-				return cfApi.action('apply_config', {});
+			return cfApi.action('apply_config', {}).then(function(r) {
+				if (!r || !r.ok)
+					return r;
+				return (typeof(self._syncEnabledTunnelDns) === 'function')
+					? self._syncEnabledTunnelDns().then(function(syncResults) {
+						r.dns_sync_results = syncResults;
+						return r;
+					})
+					: r;
 			});
 		}).then(function(r) {
 			if (r === null)

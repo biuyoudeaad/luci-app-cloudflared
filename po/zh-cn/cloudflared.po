@@ -185,6 +185,15 @@ msgstr "cloudflared 发布文件的基础地址，可使用镜像。"
 msgid "Allow DNS Deletion"
 msgstr "允许删除 DNS 记录"
 
+msgid "Automatically clean up orphaned DNS records on save"
+msgstr "保存时自动清理孤立 DNS 记录"
+
+msgid "When enabled, applying configuration may delete DNS records that point to a tunnel but have no matching ingress rule. Manual deletion is controlled separately in the confirmation dialog."
+msgstr "开启后，应用配置时可能删除指向隧道但没有对应入站规则的 DNS 记录。手动删除由确认弹框单独控制。"
+
+msgid "Deletes DNS records associated with this tunnel."
+msgstr "删除与此隧道关联的 DNS 记录。"
+
 msgid "Disabled by default. Only delete records matching the current tunnel target when enabled."
 msgstr "默认关闭。开启后仅删除匹配当前隧道目标的记录。"
 
@@ -901,3 +910,378 @@ msgstr "运行状态"
 
 msgid "Logs"
 msgstr "日志"
+
+msgid "This tunnel is not saved yet. Click Save or Save & Apply on the page first, then try again."
+msgstr "该隧道尚未保存。请先点击页面上的“保存”或“保存并应用”，然后再试。"
+
+msgid "This tunnel is not saved yet. Click the page-level Save or Save & Apply button below the tunnel table first, then try again."
+msgstr "该隧道尚未保存。请先点击隧道表格下方的“保存”或“保存并应用”，然后再试。"
+
+msgid "Could not save this tunnel."
+msgstr "无法保存该隧道。"
+
+msgid "Authorization complete. Creating the tunnel..."
+msgstr "授权完成，正在创建隧道..."
+
+msgid "Tunnel created: %s"
+msgstr "隧道已创建：%s"
+
+msgid "Could not save or apply this tunnel. Please click Save & Apply on the page and try again."
+msgstr "无法保存或应用该隧道。请点击页面上的“保存并应用”后再试。"
+
+msgid "Existing tunnel reconnected: %s"
+msgstr "已重新连接现有隧道：%s"
+
+msgid "Delete local tunnel data"
+msgstr "删除本地隧道数据"
+
+msgid "Removes config.yml, credentials, per-tunnel cert.pem and backups."
+msgstr "删除 config.yml、凭据、隧道独立 cert.pem 和备份。"
+
+msgid "Delete associated ingress rules"
+msgstr "删除关联的入站规则"
+
+msgid "Removes all ingress rules that belong to this tunnel."
+msgstr "删除所有属于该隧道的入站规则。"
+
+msgid "Delete Cloudflare tunnel"
+msgstr "删除 Cloudflare 隧道"
+
+msgid "Deletes the remote tunnel from Cloudflare. This cannot be undone."
+msgstr "从 Cloudflare 删除远端隧道，此操作不可恢复。"
+
+msgid "Delete associated DNS records"
+msgstr "删除关联的 DNS 记录"
+
+msgid "Deletes DNS records that point to this tunnel. Requires Allow DNS Deletion in settings."
+msgstr "删除指向该隧道的 DNS 记录。需要先在设置中开启“允许删除 DNS”。"
+
+msgid "The tunnel configuration will be removed. Choose what else to delete:"
+msgstr "将删除隧道配置。请选择还要删除的内容："
+
+msgid "Tunnel ID: %s"
+msgstr "隧道 ID：%s"
+
+msgid "Tunnel ID: not set"
+msgstr "隧道 ID：未设置"
+
+msgid "Unsaved changes on this page will be discarded."
+msgstr "本页未保存的修改将被丢弃。"
+
+msgid "Delete"
+msgstr "删除"
+
+msgid "Delete Tunnel"
+msgstr "删除隧道"
+
+msgid "Tunnel deleted"
+msgstr "隧道已删除"
+
+msgid "Cloudflare tunnel deleted"
+msgstr "Cloudflare 隧道已删除"
+
+msgid "Ingress rules deleted: %s"
+msgstr "已删除入站规则：%s"
+
+msgid "DNS records deleted: %s, failed: %s"
+msgstr "已删除 DNS 记录：%s，失败：%s"
+
+msgid "Local files deleted"
+msgstr "本地文件已删除"
+
+msgid "Local files not deleted: %s"
+msgstr "本地文件未删除：%s"
+
+msgid "DNS deletion is disabled in settings"
+msgstr "设置中未开启 DNS 删除"
+
+msgid "Missing API token, tunnel ID or domain; DNS records were not deleted"
+msgstr "缺少 API Token、隧道 ID 或域名，DNS 记录未删除"
+
+msgid "Unable to query DNS records"
+msgstr "无法查询 DNS 记录"
+
+msgid "Tunnel already exists"
+msgstr "隧道已存在"
+
+msgid "A Cloudflare tunnel named "%s" already exists."
+msgstr "Cloudflare 上已存在名为“%s”的隧道。"
+
+msgid "Force deleting it will disconnect all clients using this tunnel and may break DNS records that point to it. This cannot be undone."
+msgstr "强制删除会断开所有正在使用该隧道的客户端，并可能导致指向它的 DNS 记录失效。此操作不可恢复。"
+
+msgid "A new tunnel will be created with the same name but a new tunnel ID. Sync DNS after creation if needed."
+msgstr "将创建同名但使用新 Tunnel ID 的隧道。创建后如有需要请重新同步 DNS。"
+
+msgid "Force delete and create"
+msgstr "强制删除并创建"
+
+msgid "Could not save this tunnel. Check the form values and try again."
+msgstr "无法保存该隧道。请检查表单内容后重试。"
+
+msgid "Could not apply this tunnel. Please click Save & Apply on the page and try again."
+msgstr "无法应用该隧道。请点击页面上的“保存并应用”后再试。"
+
+msgid "Tunnel created, but config generation failed. Check the log."
+msgstr "隧道已创建，但生成配置失败。请检查日志。"
+
+msgid "Tunnel created, but it is not running yet. Check the log or start the service."
+msgstr "隧道已创建，但尚未运行。请检查日志或启动服务。"
+
+msgid "Delete Ingress Rule"
+msgstr "删除入站规则"
+
+msgid "Delete the local ingress rule for "%s"?"
+msgstr "删除入站规则“%s”的本地配置？"
+
+msgid "Delete the matching remote DNS record"
+msgstr "同时删除对应的远程 DNS 记录"
+
+msgid "Removes the Cloudflare DNS record that points this hostname to the tunnel."
+msgstr "删除 Cloudflare 上指向该隧道的主机名 DNS 记录。"
+
+msgid "This action takes effect immediately."
+msgstr "此操作会立即生效。"
+
+msgid "Ingress rule deleted"
+msgstr "入站规则已删除"
+
+msgid "DNS record deleted"
+msgstr "DNS 记录已删除"
+
+msgid "DNS record deletion failed"
+msgstr "DNS 记录删除失败"
+
+msgid "DNS record not deleted: %s"
+msgstr "DNS 记录未删除：%s"
+
+msgid "Config regeneration failed. Check the log."
+msgstr "重新生成配置失败，请检查日志。"
+
+msgid "Service restart failed. Check the log."
+msgstr "服务重启失败，请检查日志。"
+
+msgid "No hostname configured"
+msgstr "未配置主机名"
+
+msgid "Missing API token, tunnel ID or domain"
+msgstr "缺少 API Token、隧道 ID 或域名"
+
+msgid "No DNS record points to this tunnel"
+msgstr "没有指向该隧道的 DNS 记录"
+
+msgid "DNS status unavailable for %s: no API token configured."
+msgstr "%s 的 DNS 状态不可用：未配置 API Token。"
+
+msgid "DNS status unavailable for %s: tunnel ID or domain is missing."
+msgstr "%s 的 DNS 状态不可用：缺少 Tunnel ID 或域名。"
+
+msgid "DNS status unavailable for %s: the API token cannot read zone %s. Grant Zone:Zone:Read and Zone:DNS:Read."
+msgstr "%s 的 DNS 状态不可用：API Token 无法读取区域 %s。请授予 Zone:Zone:Read 和 Zone:DNS:Read 权限。"
+
+msgid "DNS status unavailable for %s: Cloudflare API request failed."
+msgstr "%s 的 DNS 状态不可用：Cloudflare API 请求失败。"
+
+msgid "Import from Remote"
+msgstr "从远程导入"
+
+msgid "Import Tunnel"
+msgstr "导入隧道"
+
+msgid "Import a tunnel and its ingress rules from Cloudflare."
+msgstr "从 Cloudflare 导入隧道及其入站规则。"
+
+msgid "Tunnel Name"
+msgstr "隧道名称"
+
+msgid "Tunnel name and API token are required."
+msgstr "隧道名称和 API 令牌不能为空。"
+
+msgid "Importing..."
+msgstr "正在导入..."
+
+msgid "Import"
+msgstr "导入"
+
+msgid "New tunnel created"
+msgstr "已创建新隧道"
+
+msgid "Existing tunnel updated"
+msgstr "已更新现有隧道"
+
+msgid "Tunnel imported: %s"
+msgstr "隧道已导入：%s"
+
+msgid "Ingress rules imported: %s"
+msgstr "已导入入站规则：%s"
+
+msgid "Ingress rules updated: %s"
+msgstr "已更新入站规则：%s"
+
+msgid "Credentials saved"
+msgstr "凭据已保存"
+
+msgid "Credentials were not saved automatically. Upload the credentials JSON manually."
+msgstr "凭据未能自动保存，请手动上传凭据 JSON。"
+
+msgid "Required token permissions: Account:Cloudflare Tunnel:Read, Zone:Zone:Read, Zone:DNS:Read."
+msgstr "令牌需要权限：Account:Cloudflare Tunnel:Read、Zone:Zone:Read、Zone:DNS:Read。"
+
+msgid "Locally managed tunnels only provide DNS hostnames; fill origin services manually."
+msgstr "本地管理的隧道只能导入 DNS 主机名，请手动填写源站服务地址。"
+
+msgid "Tunnel already exists locally: %s"
+msgstr "本地已存在该隧道：%s"
+
+msgid "Used for DNS status, DNS deletion and remote import. This is not the tunnel run token."
+msgstr "用于 DNS 状态、DNS 删除和远程导入。这不是隧道运行令牌。"
+
+msgid "Cloudflare API Token Override"
+msgstr "Cloudflare API 令牌覆盖"
+
+msgid "Optional per-tunnel API token for DNS status, DNS deletion and remote import. This is not the tunnel run token. Leave empty to use the global API token."
+msgstr "可选的隧道级 API 令牌，用于 DNS 状态、DNS 删除和远程导入。这不是隧道运行令牌。留空则使用概览页的全局 API 令牌。"
+
+msgid "The tunnel run credentials generated by Cloudflare. This is not an API token."
+msgstr "Cloudflare 生成的隧道运行凭据。这不是 API 令牌。"
+
+msgid "API token is not configured"
+msgstr "未配置 API 令牌"
+
+msgid "Tunnel ID is missing"
+msgstr "缺少 Tunnel ID"
+
+msgid "DNS zone not found"
+msgstr "未找到 DNS 区域"
+
+msgid "DNS record exists with a different target"
+msgstr "已存在指向其他目标的 DNS 记录"
+
+msgid "Cloudflare API request failed"
+msgstr "Cloudflare API 请求失败"
+
+msgid "Deletes the remote tunnel from Cloudflare. This requires the account certificate or an API token with Account:Cloudflare Tunnel:Edit. This cannot be undone."
+msgstr "从 Cloudflare 删除远端隧道。需要账号证书，或具有 Account:Cloudflare Tunnel:Edit 权限的 API 令牌。此操作不可恢复。"
+
+msgid "Optional API token"
+msgstr "可选 API 令牌"
+
+msgid "Cloudflare API Token for remote deletion"
+msgstr "用于远端删除的 Cloudflare API 令牌"
+
+msgid "Optional. Required when the current token or certificate belongs to a different Cloudflare account."
+msgstr "可选。当前令牌或证书属于其他 Cloudflare 账号时需要填写。"
+
+msgid "Continue deleting local configuration if remote deletion fails"
+msgstr "远端删除失败时仍继续删除本地配置"
+
+msgid "Remote tunnel was not deleted: %s"
+msgstr "远端隧道未删除：%s"
+
+msgid "Optional per-tunnel API token for DNS status, DNS deletion and remote import. This is not the tunnel run token. Authorization does not fill this field. Leave empty to use the global API token."
+msgstr "可选的隧道级 API 令牌，用于 DNS 状态、DNS 删除和远程导入。这不是隧道运行令牌。授权不会自动填写此字段。留空则使用概览页的全局 API 令牌。"
+
+msgid "Authorization creates the account certificate (cert.pem), not a Cloudflare API token."
+msgstr "授权只会生成账号证书 cert.pem，不会生成或填写 Cloudflare API 令牌。"
+
+msgid "Use Global Certificate"
+msgstr "使用全局证书"
+
+msgid "Reuse the existing account certificate and avoid creating another Cloudflare Tunnel API Token."
+msgstr "复用现有账号证书，避免创建新的 Cloudflare Tunnel API 令牌。"
+
+msgid "Using global certificate: %s"
+msgstr "正在使用全局证书：%s"
+
+msgid "Authorization creates a new Cloudflare Tunnel API Token inside cert.pem. Reuse the global certificate for tunnels in the same account to avoid extra tokens."
+msgstr "授权会在 cert.pem 中生成新的 Cloudflare Tunnel API 令牌。同一账号的多个隧道建议复用全局证书，避免产生额外令牌。"
+
+msgid "Revoke the certificate's Cloudflare Tunnel API Token"
+msgstr "撤销证书中的 Cloudflare Tunnel API 令牌"
+
+msgid "Deletes the API token embedded in cert.pem. If this certificate is shared with other tunnels, they will lose management access."
+msgstr "删除 cert.pem 中嵌入的 API 令牌。如果该证书被其他隧道共用，它们将失去管理权限。"
+
+msgid "Cloudflare Tunnel API Token revoked"
+msgstr "Cloudflare Tunnel API 令牌已撤销"
+
+msgid "Token revoke failed: %s"
+msgstr "令牌撤销失败：%s"
+
+msgid "Token not revoked because the remote tunnel was not deleted"
+msgstr "远端隧道未删除，因此未撤销令牌"
+
+msgid "Token not revoked: cert.pem not found"
+msgstr "未撤销令牌：找不到 cert.pem"
+
+msgid "Optional. Used for remote deletion and token revocation. Required when the current token or certificate belongs to a different Cloudflare account."
+msgstr "可选。用于远端删除和令牌撤销。当前令牌或证书属于其他 Cloudflare 账号时需要填写。"
+
+msgid "The token is read from cert.pem automatically; no manual lookup is needed. Requires an API token with User:API Tokens:Edit. If this certificate is shared with other tunnels, they will lose management access."
+msgstr "会自动从 cert.pem 读取令牌，无需手动查找令牌 ID。撤销需要具有 User:API Tokens:Edit 权限的 API 令牌。如果该证书被其他隧道共用，它们将失去管理权限。"
+
+msgid "Optional. Used for remote deletion and token revocation. Required when the saved API token lacks User:API Tokens:Edit or belongs to a different Cloudflare account."
+msgstr "可选。用于远端删除和令牌撤销。当已保存的 API 令牌缺少 User:API Tokens:Edit 权限或属于其他 Cloudflare 账号时需要填写。"
+
+msgid "Used for DNS status, DNS deletion, remote import, remote tunnel deletion and certificate token revocation. This is not the tunnel run token."
+msgstr "用于 DNS 状态、DNS 删除、远程导入、远端隧道删除和证书令牌撤销。这不是隧道运行令牌。"
+
+msgid "Optional per-tunnel API token for DNS status, DNS deletion, remote import, remote tunnel deletion and certificate token revocation. This is not the tunnel run token. Authorization does not fill this field. Leave empty to use the global API token."
+msgstr "可选的隧道级 API 令牌，用于 DNS 状态、DNS 删除、远程导入、远端隧道删除和证书令牌撤销。这不是隧道运行令牌。授权不会自动填写此字段。留空则使用概览页的全局 API 令牌。"
+
+msgid "Sync Selected DNS"
+msgstr "一键DNS同步"
+
+msgid "Delete Selected"
+msgstr "一键删除"
+
+msgid "Force Sync"
+msgstr "强制同步"
+
+msgid "Cloudflare API Token URL"
+msgstr "Cloudflare API 令牌获取地址"
+
+msgid "URL used to obtain a Cloudflare API token."
+msgstr "用于获取 Cloudflare API 令牌的地址。"
+
+msgid "Get Cloudflare API Token"
+msgstr "获取 Cloudflare API 令牌"
+
+msgid "Delete Selected Ingress Rules"
+msgstr "删除选中的入站规则"
+
+msgid "Delete %s selected ingress rules?"
+msgstr "确定删除选中的 %s 条入站规则吗？"
+
+msgid "No selected sites to delete."
+msgstr "没有勾选要删除的站点。"
+
+msgid "Delete matching remote DNS records"
+msgstr "同时删除匹配的远端 DNS 记录"
+
+msgid "Removes matching Cloudflare DNS records before deleting the local rules."
+msgstr "删除本地规则前，同时删除匹配的 Cloudflare DNS 记录。"
+
+msgid "Ingress rules failed: %s"
+msgstr "删除失败的入站规则：%s"
+
+msgid "DNS records deleted: %s"
+msgstr "已删除 DNS 记录：%s"
+
+msgid "DNS record deletion failed: %s"
+msgstr "DNS 记录删除失败：%s"
+
+msgid "No selected sites to sync."
+msgstr "没有勾选要同步 DNS 的站点。"
+
+msgid "No selected sites to check."
+msgstr "没有勾选要检查的站点。"
+
+msgid "Select all"
+msgstr "全选"
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "Generating authorization link, please wait..."
+msgstr "授权链接生成中，请稍候..."

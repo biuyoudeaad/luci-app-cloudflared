@@ -7,9 +7,33 @@
 
 function card(cls, label, valueNode, subNode, title) {
 	return E('div', { 'class': 'cf-stat ' + cls, 'title': title || null }, [
-		E('div', { 'class': 'cf-stat-label' }, [ label ]),
+		E('div', { 'class': 'cf-stat-title' }, [ label ]),
 		E('div', { 'class': 'cf-stat-value' }, [ valueNode ]),
 		subNode ? E('div', { 'class': 'cf-stat-sub' }, [ subNode ]) : ''
+	]);
+}
+
+function countsCard(cls, title, total, counts, note, titleAttr) {
+	counts = counts || {};
+
+	function n(v) {
+		return (v !== undefined && v !== null) ? v : 0;
+	}
+
+	return E('div', { 'class': 'cf-stat cf-stat-counts-card ' + cls, 'title': titleAttr || null }, [
+		E('div', { 'class': 'cf-stat-title' }, [
+			title,
+			(total !== undefined && total !== null)
+				? E('span', { 'class': 'cf-stat-total' }, [ ' · ' + total ])
+				: ''
+		]),
+		E('div', { 'class': 'cf-stat-metrics' }, [
+			E('span', { 'class': 'cf-site-running' }, [ _('Running') + ': ' + n(counts.running) ]),
+			E('span', { 'class': 'cf-site-pending' }, [ _('Pending') + ': ' + n(counts.pending) ]),
+			E('span', { 'class': 'cf-site-abnormal' }, [ _('Abnormal') + ': ' + n(counts.abnormal) ]),
+			E('span', { 'class': 'cf-site-disabled' }, [ _('Site Disabled') + ': ' + n(counts.disabled) ])
+		]),
+		note ? E('div', { 'class': 'cf-stat-sub' }, [ note ]) : ''
 	]);
 }
 
@@ -61,6 +85,11 @@ return view.extend({
 		o.placeholder = '/etc/cloudflared/cert.pem';
 		o.rmempty = true;
 
+		o = s.option(form.Value, 'api_token_url', _('Cloudflare API Token URL'),
+			_('URL used to obtain a Cloudflare API token.'));
+		o.default = 'https://dash.cloudflare.com/profile/api-tokens';
+		o.rmempty = false;
+
 		o = s.option(form.DummyValue, '_runtime_paths', _('Runtime Paths'));
 		o.textvalue = function() {
 			return E('div', {}, [
@@ -71,16 +100,40 @@ return view.extend({
 			]);
 		};
 
-		o = s.option(form.Value, 'api_token', _('Cloudflare API Token'));
+		o = s.option(form.Value, 'api_token', _('Cloudflare API Token'),
+			_('Used for DNS status, DNS deletion, remote import, remote tunnel deletion and certificate token revocation. This is not the tunnel run token.'));
 		o.password = true;
+
+		o = s.option(form.DummyValue, '_api_token_link', '');
+		o.textvalue = function(section_id) {
+			const fallback = 'https://dash.cloudflare.com/profile/api-tokens';
+			const link = E('a', {
+				'href': uci.get('cloudflared', 'main', 'api_token_url') || fallback,
+				'target': '_blank',
+				'rel': 'noopener noreferrer'
+			}, [ _('Get Cloudflare API Token') ]);
+
+			setTimeout(function() {
+				const input = document.querySelector('[data-name="api_token_url"] input');
+				if (!input)
+					return;
+				const update = function() {
+					try { link.href = input.value || fallback; } catch (e) {}
+				};
+				input.addEventListener('input', update);
+				update();
+			}, 0);
+
+			return E('div', { 'class': 'cf-token-link' }, [ link ]);
+		};
 
 		o = s.option(form.Value, 'download_url', _('Download URL'),
 			_('Base URL for cloudflared releases. Useful for mirrors.'));
 		o.default = 'https://github.com/cloudflare/cloudflared/releases/latest/download';
 		o.rmempty = true;
 
-		o = s.option(form.Flag, 'allow_dns_delete', _('Allow DNS Deletion'),
-			_('Disabled by default. Only delete records matching the current tunnel target when enabled.'));
+		o = s.option(form.Flag, 'allow_dns_delete', _('Automatically clean up orphaned DNS records on save'),
+			_('When enabled, applying configuration may delete DNS records that point to a tunnel but have no matching ingress rule. Manual deletion is controlled separately in the confirmation dialog.'));
 		o.default = '0';
 		o.rmempty = false;
 
@@ -100,32 +153,17 @@ return view.extend({
 				card(ov.running ? 'ok' : 'bad', _('Connection'),
 					E('span', { 'style': 'color:' + (ov.running ? 'var(--success, var(--v-ok, #0b7f6c))' : 'var(--danger, var(--v-err, #c42b2b))') },
 						[ (ov.running ? '● ' + _('Running') : '● ' + _('Stopped')) ]),
-					_('Enable on boot') + ': ' + (ov.service_enabled ? _('Enabled') : _('Inactive'))),
+					E('span', {}, [
+						_('Enable on boot') + ': ',
+						E('strong', { 'id': 'cf-boot-status' }, [ ov.service_enabled ? _('Enabled') : _('Inactive') ])
+					])),
 				(function() {
 					const tc = ov.tunnel_counts || { total: 0, running: 0, pending: 0, abnormal: 0, disabled: 0 };
-
-					return card((tc.abnormal > 0) ? 'warn' : 'ok',
-						_('Tunnels') + ' · ' + tc.total,
-						E('span', { 'class': 'cf-site-running' }, [
-							_('Running') + ' ' + tc.running
-						]),
-						E('div', { 'class': 'cf-site-counts' }, [
-							E('span', { 'class': 'cf-site-pending' }, [ _('Pending') + ' ' + tc.pending ]),
-							E('span', { 'class': 'cf-site-abnormal' }, [ _('Abnormal') + ' ' + tc.abnormal ]),
-							E('span', { 'class': 'cf-site-disabled' }, [ _('Site Disabled') + ' ' + tc.disabled ])
-						]));
+					return countsCard((tc.abnormal > 0) ? 'warn' : 'ok', _('Tunnels'), tc.total, tc);
 				})(),
-				card('cf-stat-wide ' + ((sites && sites.abnormal > 0) ? 'warn' : 'ok'), _('Sites'),
-					E('span', { 'class': 'cf-site-running' }, [
-						_('Running') + ' ' + (sites ? sites.running : '—')
-					]),
-					E('div', { 'class': 'cf-site-counts' }, [
-						E('span', { 'class': 'cf-site-pending' }, [ _('Pending') + ' ' + (sites ? sites.pending : '—') ]),
-						E('span', { 'class': 'cf-site-abnormal' }, [ _('Abnormal') + ' ' + (sites ? sites.abnormal : '—') ]),
-						E('span', { 'class': 'cf-site-disabled' }, [ _('Site Disabled') + ' ' + (sites ? sites.disabled : '—') ]),
-						E('span', {}, [ _('Sites') + ' ' + (sites ? sites.total : '—') ])
-					]),
-					_('Site counts use saved ingress rules. Running means valid configuration, a running tunnel process and a synced CNAME; origin reachability is not tested.'))
+				countsCard('cf-stat-wide ' + ((sites && sites.abnormal > 0) ? 'warn' : 'ok'),
+					_('Sites'), sites ? sites.total : '—',
+					sites || { running: 0, pending: 0, abnormal: 0, disabled: 0 })
 			]);
 
 			const guideRow = E('div', { 'class': 'cf-stat-guide-row' }, [
@@ -144,11 +182,22 @@ return view.extend({
 
 			enableBox.addEventListener('change', function() {
 				const want = enableBox.checked;
+				enableBox.disabled = true;
+
 				cfApi.action('service_enable', { enabled: want ? '1' : '0' }).then(function(r) {
+					enableBox.disabled = false;
+
 					if (!r || !r.ok) {
 						enableBox.checked = !want;
 						ui.addNotification(null, E('p', {}, [ cfApi.message(r) ]), 'danger');
+						return;
 					}
+
+					enableBox.checked = !!r.enabled;
+
+					const statusEl = document.getElementById('cf-boot-status');
+					if (statusEl)
+						statusEl.textContent = r.enabled ? _('Enabled') : _('Inactive');
 				});
 			});
 
@@ -350,8 +399,12 @@ return view.extend({
 
 			const top = E('div', { 'class': 'cf-top-grid' }, [
 				E('div', { 'class': 'cf-top-col' }, [
-					E('h3', {}, [ _('Service Control') ]),
-					E('div', { 'class': 'cf-actions' }, [
+					E('h3', {}, [
+					_('Service Control'),
+					ov.plugin_version
+						? E('span', { 'class': 'cf-version', 'title': 'luci-app-cloudflared' }, [ ' · v' + ov.plugin_version ])
+						: ''
+				]),					E('div', { 'class': 'cf-actions' }, [
 						serviceButton('start', _('Start'), 'cbi-button-apply'),
 						serviceButton('stop', _('Stop'), 'cbi-button-reset'),
 						serviceButton('restart', _('Restart'), 'cbi-button-reload')

@@ -17,10 +17,13 @@ export CF_BACKUP_DIR="$TMP/backups"
 export CF_DEFAULT_CORE_DIR="$TMP/core"
 export PATH="$TESTDIR/mock:$PATH"
 
-chmod +x "$TESTDIR/mock/uci"
+chmod +x "$TESTDIR/mock/uci" "$TESTDIR/mock/cloudflared"
 
 echo "== shell: multi-tunnel same-zone =="
 sh "$TESTDIR/shell/multitunnel.sh"
+
+echo "== shell: tunnel create collision =="
+sh "$TESTDIR/shell/tunnel_create_collision.sh"
 
 LUA_BIN="${LUA_BIN:-}"
 if [ -z "$LUA_BIN" ]; then

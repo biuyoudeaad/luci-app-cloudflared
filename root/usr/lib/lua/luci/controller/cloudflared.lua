@@ -20,6 +20,7 @@ function action()
 	local p = {
 		action = http.formvalue("action") or "",
 		section = http.formvalue("section") or "",
+		ingress = http.formvalue("ingress") or "",
 		name = http.formvalue("name") or "",
 		new_domain = http.formvalue("new_domain") or "",
 		url = http.formvalue("url") or "",
@@ -29,6 +30,16 @@ function action()
 		filter = http.formvalue("filter") or "",
 		lines = http.formvalue("lines") or "",
 		force = http.formvalue("force") or "",
+		force_sync = http.formvalue("force_sync") or "",
+		force_delete = http.formvalue("force_delete") or "",
+		api_token = http.formvalue("api_token") or "",
+		delete_local = http.formvalue("delete_local") or "",
+		delete_ingress = http.formvalue("delete_ingress") or "",
+		delete_remote = http.formvalue("delete_remote") or "",
+		delete_dns = http.formvalue("delete_dns") or "",
+		continue_on_remote_error = http.formvalue("continue_on_remote_error") or "",
+		revoke_token = http.formvalue("revoke_token") or "",
+		tunnel_id = http.formvalue("tunnel_id") or "",
 	}
 
 	local name = p.action
@@ -104,6 +115,12 @@ function action()
 		result = common.action_tunnel_status()
 	elseif name == "apply_config" then
 		result = common.action_apply_config()
+	elseif name == "tunnel_delete" then
+		result = common.action_tunnel_delete(p)
+	elseif name == "ingress_delete" then
+		result = common.action_ingress_delete(p)
+	elseif name == "tunnel_import" then
+		result = common.action_tunnel_import(p)
 	elseif name == "apply_tunnels" then
 		result = common.action_apply_tunnels()
 	elseif name == "apply_log" then
@@ -116,6 +133,8 @@ function action()
 		result = common.action_core_cancel()
 	elseif name == "core_status" then
 		result = common.action_core_status(p)
+	elseif name == "tunnel_use_global_cert" then
+		result = common.action_tunnel_use_global_cert(p)
 	elseif name == "login_start" then
 		result = common.action_login_start(p)
 	elseif name == "login_status" then

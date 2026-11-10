@@ -128,6 +128,28 @@ assert_eq "$(cf_tunnel_dir t1)" "$DATA/tunnels/t1"
 assert_eq "$(cf_tunnel_cert_target t1)" "$DATA/tunnels/t1/cert.pem"
 assert_eq "$(cf_cert_path t1)" "$DATA/cert.pem"
 
+# A tunnel configured to reuse the account certificate uses the global cert
+# for both authorization output and runtime certificate resolution.
+printf 'BEGIN CERTIFICATE\nglobal\n' > "$DATA/cert.pem"
+uci -q set cloudflared.t1.use_global_cert=1
+assert_eq "$(cf_tunnel_cert_target t1)" "$DATA/cert.pem"
+assert_eq "$(cf_cert_path t1)" "$DATA/cert.pem"
+uci -q set cloudflared.t1.use_global_cert=0
+
+# A stale explicit cert_path must fall back to the per-tunnel cert.
+mkdir -p "$DATA/tunnels/t1"
+printf 'BEGIN CERTIFICATE\nx\n' > "$DATA/tunnels/t1/cert.pem"
+uci -q set cloudflared.t1.cert_path="$TMP/missing-cert.pem"
+assert_eq "$(cf_cert_path t1)" "$DATA/tunnels/t1/cert.pem"
+uci -q set cloudflared.t1.cert_path=
+rm -f "$DATA/tunnels/t1/cert.pem"
+
+# Credentials can be recovered from an old tunnel directory by tunnel ID.
+mkdir -p "$DATA/tunnels/old-section"
+printf '{"TunnelID":"tid1","TunnelSecret":"s1","AccountTag":"a"}\n' > "$DATA/tunnels/old-section/tid1.json"
+assert_eq "$(cf_find_credentials_by_id tid1)" "$DATA/tunnels/old-section/tid1.json"
+rm -rf "$DATA/tunnels/old-section"
+
 # Config rotation backups stay outside the persistent data directory.
 uci -q set cloudflared.t1.credentials_file="$BASE/t1/tid1.json"
 cf_gen_config t1 >/dev/null

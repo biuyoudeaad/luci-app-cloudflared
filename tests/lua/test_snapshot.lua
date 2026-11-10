@@ -48,4 +48,24 @@ helper.assert(common.core_target() == "/opt/cloudflared/bin/cloudflared", "core 
 helper.set("cloudflared.main.cert_path", "")
 helper.assert(common.resolve_cert("t3") == data .. "/cert.pem", "cert should default under data_path")
 
+-- Local deletion must only remove tunnel dirs below a known tunnels root.
+local data = tmp .. "/delete-data"
+local tdir = data .. "/tunnels/t1"
+os.execute("mkdir -p '" .. tdir .. "'")
+helper.set("cloudflared.main.data_path", data)
+helper.set("cloudflared.main.base_path", "")
+helper.set("cloudflared.t1.data_dir", tdir)
+local removed, skipped = common.delete_tunnel_files("t1")
+helper.assert(removed, "tunnel dir should be removed")
+helper.assert(skipped == "", "no path should be skipped")
+helper.assert(os.execute("test -d '" .. tdir .. "'") ~= 0, "tunnel dir still exists")
+
+local custom = tmp .. "/custom-tunnel"
+os.execute("mkdir -p '" .. custom .. "'")
+helper.set("cloudflared.t1.data_dir", custom)
+local removed2, skipped2 = common.delete_tunnel_files("t1")
+helper.assert(not removed2, "custom dir must not be removed")
+helper.assert(skipped2 == custom, "custom dir should be reported as skipped")
+helper.assert(os.execute("test -d '" .. custom .. "'") == 0, "custom dir should remain")
+
 print("lua snapshot/change-detection test passed")

@@ -2,7 +2,19 @@
 # First-install / upgrade migration for luci-app-cloudflared.
 
 chmod +x /etc/init.d/cloudflared 2>/dev/null
-/etc/init.d/cloudflared enable 2>/dev/null
+
+# Create the unprivileged account used to run the cloudflared core.
+[ -f /lib/functions.sh ] && . /lib/functions.sh
+if command -v group_add_next >/dev/null 2>&1; then
+	gid="$(group_add_next cloudflared 2>/dev/null)"
+	user_exists cloudflared 2>/dev/null || \
+		user_add cloudflared "" "$gid" "cloudflared" "/tmp/cloudflared" "/bin/false" 2>/dev/null
+	group_add_user cloudflared cloudflared 2>/dev/null
+fi
+
+# Do not force-enable autostart on install or upgrade. The "Enable on boot"
+# switch owns /etc/rc.d/S99cloudflared, so an unchecked switch stays false
+# across package upgrades.
 
 # Legacy base directory: keep it available for old installs that have not been
 # migrated yet, but do not use it for new data.
@@ -16,9 +28,12 @@ DATA="$(uci -q get cloudflared.main.data_path 2>/dev/null)"
 mkdir -p "$DATA/tunnels" /opt/cloudflared/bin /opt/cloudflared/backups \
 	/etc/luci-uploads /tmp/cloudflared /var/log/cloudflared 2>/dev/null || true
 mkdir -p "$BASE" 2>/dev/null || true
-chmod 700 "$DATA" "$DATA/tunnels" /opt/cloudflared/backups 2>/dev/null || true
+chmod 700 /opt/cloudflared/backups 2>/dev/null || true
 chmod 755 /opt/cloudflared /opt/cloudflared/bin 2>/dev/null || true
-chmod 600 "$DATA/cert.pem" "$DATA"/tunnels/*/cert.pem "$DATA"/tunnels/*/*.json 2>/dev/null || true
+
+# Persistent config and credentials must be readable by the core user.
+[ -f /usr/lib/cloudflared/common.sh ] && . /usr/lib/cloudflared/common.sh
+cf_fix_permissions 2>/dev/null || true
 
 if ! uci -q get cloudflared.log >/dev/null 2>&1; then
 	uci -q set cloudflared.log=log

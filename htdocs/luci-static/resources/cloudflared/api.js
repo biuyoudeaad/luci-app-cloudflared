@@ -68,7 +68,12 @@ function upload(name, section, file) {
 }
 
 function message(result) {
-	return (result && result.message) ? result.message : _('Request failed');
+	const msg = (result && result.message) ? result.message : _('Request failed');
+
+	if (/unknown section/i.test(msg))
+		return _('This tunnel is not saved yet. Click the page-level Save or Save & Apply button below the tunnel table first, then try again.');
+
+	return msg;
 }
 
 return baseclass.extend({

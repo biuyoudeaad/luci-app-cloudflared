@@ -7,6 +7,7 @@ CF_COMMON_SH_LOADED=1
 
 CF_STATE_DIR="${CF_STATE_DIR:-/tmp/cloudflared}"
 CF_LOG_DIR="/var/log/cloudflared"
+CF_RUN_USER="${CF_RUN_USER:-cloudflared}"
 CF_APP_LOG="$CF_LOG_DIR/app.log"
 CF_CORE_LOG="$CF_LOG_DIR/core.log"
 CF_DEFAULT_BASE="${CF_DEFAULT_BASE:-/opt/cloudflare}"
@@ -49,6 +50,82 @@ cf_log_limit_bytes() {
 	fi
 
 	printf '%s' "$CF_LOG_LIMIT_CACHE"
+}
+
+cf_run_user_exists() {
+	id -u "$CF_RUN_USER" >/dev/null 2>&1
+}
+
+cf_fix_dir_perms() {
+	local d="$1"
+	[ "$(id -u)" = "0" ] || return 0
+	cf_run_user_exists || return 0
+	[ -d "$d" ] || return 0
+	chgrp "$CF_RUN_USER" "$d" 2>/dev/null || true
+	chmod 750 "$d" 2>/dev/null || true
+}
+
+cf_fix_file_perms() {
+	local f="$1"
+	[ "$(id -u)" = "0" ] || return 0
+	cf_run_user_exists || return 0
+	[ -f "$f" ] || return 0
+	chgrp "$CF_RUN_USER" "$f" 2>/dev/null || true
+	chmod 640 "$f" 2>/dev/null || true
+}
+
+cf_fix_permissions() {
+	local data section dir cfg cert creds f
+
+	[ "$(id -u)" = "0" ] || return 0
+	cf_run_user_exists || return 0
+
+	data="$(cf_data_path)"
+	for dir in "$data" "$data/tunnels"; do
+		[ -d "$dir" ] || continue
+		chgrp "$CF_RUN_USER" "$dir" 2>/dev/null || true
+		chmod 750 "$dir" 2>/dev/null || true
+	done
+
+	for section in $(cf_tunnel_sections); do
+		dir="$(cf_tunnel_dir "$section")"
+		if [ -d "$dir" ]; then
+			chgrp "$CF_RUN_USER" "$dir" 2>/dev/null || true
+			chmod 750 "$dir" 2>/dev/null || true
+		fi
+
+		cfg="$(cf_config_path "$section")"
+		for f in "$cfg" "$cfg.bak1" "$cfg.bak2" "$dir/cert.pem" "$dir"/*.json; do
+			[ -f "$f" ] || continue
+			chgrp "$CF_RUN_USER" "$f" 2>/dev/null || true
+			chmod 640 "$f" 2>/dev/null || true
+		done
+
+		cert="$(cf_cert_path "$section" 2>/dev/null)" || cert=""
+		if [ -n "$cert" ] && [ -f "$cert" ]; then
+			chgrp "$CF_RUN_USER" "$cert" 2>/dev/null || true
+			chmod 640 "$cert" 2>/dev/null || true
+		fi
+
+		creds="$(cf_credentials "$section" 2>/dev/null)" || creds=""
+		if [ -n "$creds" ] && [ -f "$creds" ]; then
+			chgrp "$CF_RUN_USER" "$creds" 2>/dev/null || true
+			chmod 640 "$creds" 2>/dev/null || true
+		fi
+	done
+
+	cert="$(cf_get main cert_path)"
+	if [ -n "$cert" ] && [ -f "$cert" ]; then
+		chgrp "$CF_RUN_USER" "$cert" 2>/dev/null || true
+		chmod 640 "$cert" 2>/dev/null || true
+	fi
+
+	mkdir -p "$CF_LOG_DIR" "$CF_STATE_DIR" 2>/dev/null
+	chgrp "$CF_RUN_USER" "$CF_LOG_DIR" "$CF_STATE_DIR" 2>/dev/null || true
+	chmod 775 "$CF_LOG_DIR" "$CF_STATE_DIR" 2>/dev/null || true
+	touch "$CF_APP_LOG" "$CF_CORE_LOG" 2>/dev/null
+	chgrp "$CF_RUN_USER" "$CF_APP_LOG" "$CF_CORE_LOG" 2>/dev/null || true
+	chmod 664 "$CF_APP_LOG" "$CF_CORE_LOG" 2>/dev/null || true
 }
 
 cf_info() {
@@ -235,9 +312,20 @@ cf_tunnel_dir() {
 
 cf_cert_path() {
 	local section="$1"
-	local path dir legacy
+	local path dir legacy imported use_global global
+
+	imported="$(cf_get "$section" imported 0)"
+	use_global="$(cf_get "$section" use_global_cert 0)"
+	if [ "$use_global" = "1" ] && [ "$imported" != "1" ]; then
+		global="$(cf_get main cert_path)"
+		[ -n "$global" ] || global="$(cf_data_path)/cert.pem"
+		[ -f "$global" ] && printf '%s' "$global" && return 0
+	fi
 
 	path="$(cf_get "$section" cert_path)"
+	# An explicitly configured but missing cert must not hide a valid
+	# per-tunnel or global certificate.
+	[ -n "$path" ] && [ ! -f "$path" ] && path=""
 	if [ -z "$path" ]; then
 		dir="$(cf_tunnel_dir "$section")"
 		[ -f "$dir/cert.pem" ] && path="$dir/cert.pem"
@@ -246,8 +334,12 @@ cf_cert_path() {
 			[ -n "$legacy" ] && [ -f "$legacy/cert.pem" ] && path="$legacy/cert.pem"
 		fi
 	fi
-	[ -n "$path" ] || path="$(cf_get main cert_path)"
-	[ -n "$path" ] || path="$(cf_data_path)/cert.pem"
+	if [ -z "$path" ] && [ "$imported" != "1" ]; then
+		path="$(cf_get main cert_path)"
+	fi
+	if [ -z "$path" ] && [ "$imported" != "1" ]; then
+		path="$(cf_data_path)/cert.pem"
+	fi
 
 	printf '%s' "$path"
 }
@@ -257,7 +349,15 @@ cf_cert_path() {
 # so authorizing another Cloudflare account cannot overwrite a shared cert.
 cf_tunnel_cert_target() {
 	local section="$1"
-	local path dir
+	local path dir use_global global
+
+	use_global="$(cf_get "$section" use_global_cert 0)"
+	if [ "$use_global" = "1" ]; then
+		global="$(cf_get main cert_path)"
+		[ -n "$global" ] || global="$(cf_data_path)/cert.pem"
+		printf '%s' "$global"
+		return 0
+	fi
 
 	path="$(cf_get "$section" cert_path)"
 	if [ -n "$path" ]; then
@@ -277,6 +377,47 @@ cf_config_path() {
 	[ -n "$path" ] || path="$(cf_tunnel_dir "$section")/config.yml"
 
 	printf '%s' "$path"
+}
+
+cf_find_credentials_by_id() {
+	local uuid="$1"
+	local data legacy f
+
+	[ -n "$uuid" ] || return 1
+	data="$(cf_data_path)"
+	legacy="$(cf_legacy_base_path)"
+
+	for f in "$data/tunnels"/*/"$uuid.json" "$data/$uuid.json"; do
+		[ -f "$f" ] || continue
+		printf '%s' "$f"
+		return 0
+	done
+
+	if [ -n "$legacy" ] && [ "$legacy" != "$data" ]; then
+		for f in "$legacy/tunnels"/*/"$uuid.json" "$legacy/$uuid.json"; do
+			[ -f "$f" ] || continue
+			printf '%s' "$f"
+			return 0
+		done
+	fi
+
+	# Pre-migration installs may still hold credentials here even when the
+	# current config no longer has a legacy base_path.
+	if [ "$data" != "$CF_DEFAULT_BASE" ]; then
+		for f in "$CF_DEFAULT_BASE/tunnels"/*/"$uuid.json" "$CF_DEFAULT_BASE/$uuid.json"; do
+			[ -f "$f" ] || continue
+			printf '%s' "$f"
+			return 0
+		done
+	fi
+
+	for f in "/root/.cloudflared/$uuid.json"; do
+		[ -f "$f" ] || continue
+		printf '%s' "$f"
+		return 0
+	done
+
+	return 1
 }
 
 cf_credentials() {
@@ -381,6 +522,7 @@ cf_gen_config() {
 	}
 
 	mkdir -p "$dir" || return 1
+	cf_fix_dir_perms "$dir"
 	tmp="$(mktemp "$dir/.config.XXXXXX" 2>/dev/null)" || tmp="$dir/.config.$$"
 
 	{
@@ -492,6 +634,7 @@ cf_gen_config() {
 
 	mv -f "$tmp" "$cfg" || return 1
 	chmod 600 "$cfg" 2>/dev/null || true
+	cf_fix_file_perms "$cfg"
 
 	printf '%s' "$cfg"
 }

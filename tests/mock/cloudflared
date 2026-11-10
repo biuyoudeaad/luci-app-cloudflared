@@ -1,0 +1,29 @@
+#!/bin/sh
+# Minimal cloudflared mock for tunnel create collision tests.
+
+case "$*" in
+	*" create "*)
+		if [ -n "$MOCK_CF_DELETED" ] && [ -f "$MOCK_CF_DELETED" ]; then
+			printf '{"AccountTag":"a","TunnelSecret":"s","TunnelID":"11111111-2222-3333-4444-555555555555"}\n' > "$MOCK_CF_CREDS"
+			printf 'Tunnel credentials written to %s.\n' "$MOCK_CF_CREDS"
+			printf 'Created tunnel chdao with id 11111111-2222-3333-4444-555555555555\n'
+			exit 0
+		fi
+		printf 'failed to create tunnel: Create Tunnel API call failed: tunnel with name already exists\n' >&2
+		exit 1
+		;;
+	*" info "*)
+		printf '{"id":"tid-existing","name":"chdao"}\n'
+		exit 0
+		;;
+	*" list "*)
+		printf '[{"id":"tid-existing","name":"chdao"}]\n'
+		exit 0
+		;;
+	*" delete "*)
+		: > "$MOCK_CF_DELETED"
+		exit 0
+		;;
+esac
+
+exit 0
